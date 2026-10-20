@@ -1,0 +1,65 @@
+# BMad: BMad Method's bmad-build-auto plans (halting at ready-for-dev) and builds, in a target whose base branch has
+# BMad installed; our checks, review, review page, chat and draft PR stay as in every pipeline. A ticket opts in with
+# `new --pipeline bmad` (or the panel's "Hat: BMad"). BMad's records under _bmad-output/ are committed on the branch.
+name = "bmad"
+title = "BMad"
+
+# Answers go back to planning: the BMad stage writes them into the spec's intent contract and re-plans.
+[ask_user]
+then = "bmad-plan"
+max_rounds = 5
+
+[user_review]
+then = "bmad-build"
+
+# An intent gap (the build answers a different intent) sets the attempt aside; the answers go to a new build.
+[intent_gap]
+then = "bmad-build"
+
+[gate]
+after = ["bmad-plan"]
+risk = "high"
+size = "large"
+
+[[stages]]
+id = "bmad-plan"
+title = "BMad plan"
+model = "plan"
+prompt = "bmad-plan.md"
+result = "plan"
+# Only the spec under _bmad-output/ (committed by the engine) may change; anything else fails the stage.
+writes = false
+commit_paths = ["_bmad-output"]
+timeout = "1h"
+# Answers come back here for a re-plan.
+max_visits = 3
+next = { READY = "bmad-build", NEEDS_USER = "ask_user" }
+
+[[stages]]
+id = "bmad-build"
+title = "BMad build"
+model = "build"
+prompt = "bmad-build.md"
+result = "implement"
+commit_paths = ["_bmad-output"]
+timeout = "3h"
+quiet_after = "30m"
+max_visits = 3
+retry = { on_quiet = true, max = 2 }
+checks = true
+routes = { checksFailed = "bmad-build" }
+
+[[stages]]
+id = "review"
+title = "Review"
+role = "reviewer"
+model = "build"
+prompt = "review.md"
+result = "review"
+writes = false
+tools_deny = ["Edit", "NotebookEdit"]
+timeout = "45m"
+max_visits = 3
+visits = { 2 = { effort = "high" } }
+routes = { fix = "bmad-build", converged = "done" }
+ask_then = "review"

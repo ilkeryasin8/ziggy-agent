@@ -1,0 +1,194 @@
+# Ziggy personal configuration. Copy to ~/.config/ziggy/config.toml
+# ($XDG_CONFIG_HOME/ziggy/config.toml, or point ZIGGY_CONFIG at it). Never commit the
+# real file: it names your repositories and paths. Unknown keys in [targets.<name>], [slack],
+# [notifications], [chat], [lead] and a checks entry are errors.
+#
+# Durations ("30s", "45m", "1h30m", "1d"; a bare number is seconds) are accepted where a comment says
+# so; elsewhere give whole seconds.
+#
+# In prepare and teardown commands and in [targets.<name>.env] values these placeholders are expanded
+# (other braces pass through untouched):
+#   {run_id}    ticket id, e.g. local-3
+#   {state}     this target's state directory (~/.local/state/ziggy/<target>)
+#   {worktree}  the ticket's worktree
+#   {target}    the target checkout (`path` below)
+#   {checkout}  the same main checkout: where prepare copies files git ignores from (a vendored
+#               tarball, a registry .npmrc), since a ticket's worktree has only tracked files
+#   {port}, {port_end}  the ticket's port range, when the target sets `ports` (also in the env as
+#               PIPELINE_PORT and PIPELINE_PORT_END, for prepare, teardown, the sessions and checks)
+
+# Which target a command uses: --target, else the target whose checkout (or ticket worktree) holds the
+# current directory, else default_target, else the only target.
+default_target = "example"
+
+# Slack intake (`ziggy listen`, Socket Mode). Optional: only `listen` needs it. Tokens are read
+# by these commands at start and kept in memory only; never put a token in this file.
+[slack]
+app_token_cmd = "op read 'op://<vault>/<slack app token item>/credential'"   # xapp-, connections:write
+bot_token_cmd = "op read 'op://<vault>/<slack bot token item>/credential'"   # xoxb-
+channel = "C0000000000"               # the private channel the bot is invited to
+user = "U0000000000"                  # your member ID: only your messages act
+# target = "example"                  # default: default_target
+
+# macOS notifications for "needs you" items (sent by the wrapper, never from inside a session).
+# Optional: these are the defaults. ZIGGY_NOTIFY=off turns them all off.
+[notifications]
+enabled = true
+events = ["question", "approval", "failed", "lost", "job-error", "quiet", "publish", "push", "merged-kept", "pr-feedback", "error",
+          "memory", "blocked", "restack", "start", "quota", "lead", "protected", "stall"]  # default: all of them
+min_interval = "30s"                  # duration; at most one notification per interval, the rest are summed up
+
+# Ticket chat (`ziggy chat`, the panel's chat): read-only questions about a ticket.
+# Optional: these are the defaults.
+[chat]
+models = ["fable", "opus", "sonnet", "haiku"]  # the first is the default model
+timeout = "30m"                       # duration per answer
+
+# The morning lead (README "The lead"): the panel starts each target's lead once a day at or after `at` (local time;
+# a machine asleep then runs it on the panel's first tick after waking). It proposes the next tickets from red CI, the
+# roadmap, assigned or labelled issues and deferred findings. Optional: these are the defaults. `ziggy lead run --now`
+# and the panel's "Yenile" run it whenever you like.
+[lead]
+enabled = true
+at = "08:30"
+
+# The machine's memory (README "A busy machine"). While macOS reports critical memory pressure, or warn pressure with swap used at
+# `swap_hold` of its total or more, no stage starts: the ticket waits (status host) and the panel starts it once the
+# machine has been calm for two ticks in a row. Running stages are never stopped. `ziggy run <id> --now` starts anyway.
+# Optional: these are the defaults; enabled = false never holds (the panel and `status` still show the machine).
+[host]
+enabled = true
+swap_hold = 0.9
+
+# Project memory (README "Project memory"). With a vault, a target whose path exactly matches a
+# `roots[].prefix` in projects_map (with an existing `vault_dir`) keeps its memory in
+# <vault>/<vault_dir>/memory; a parent root naming one project (no {leaf}) gives the repo
+# <vault>/<vault_dir>/memory/<repo folder>; otherwise ~/.local/state/ziggy/<target>/memory. Optional.
+# [memory]
+# vault = "~/Documents/Vault"         # absolute path to an Obsidian-style vault; default: none
+# projects_map = "~/Documents/Vault/.claude/scripts/projects.json"  # default <vault>/.claude/scripts/projects.json
+
+# `ziggy target add` / `project new` / the panel's "Mevcut repoyu ekle": which gh account opens
+# PRs for a repository, by path (longest prefix wins, case-insensitive); others get default_gh_user.
+# A folder with its own gh account or Claude login counts as a company repository (an AGENTS.md draft
+# PR there needs an explicit confirmation). The folders named here are also where `project new` may
+# create a repository. All optional.
+[onboard]
+default_gh_user = "personal-gh-account"
+onboard_model = "sonnet"              # default sonnet: the agent session of "Ajanla doldur" / `target add --agent`
+
+[onboard.gh_users]
+"~/src/work" = "work-gh-account"
+
+# Claude login the runs use, by path: proposed as CLAUDE_CONFIG_DIR in the target's [env].
+# Elsewhere the default login (~/.claude) runs them. Log in once per directory:
+# `CLAUDE_CONFIG_DIR=~/.claude-work claude /login`.
+[onboard.claude_config_dirs]
+"~/src/work" = "~/.claude-work"
+
+# Issue trackers (`new --source youtrack:PROJ-12`). Read and written by Claude through the
+# tracker's own connector; the pipeline only records where a ticket came from. No tokens here.
+# All optional.
+[sources.youtrack.projects]           # tracker project -> target, used when --target is not given
+PROJ = "example"
+
+[sources.youtrack.states]             # State the issue moves to; leave one out to only comment
+started = "In Progress"
+pr_opened = "In Review"
+
+[sources.youtrack.types]              # issue Type -> ticket type
+Bug = "fix"
+Task = "chore"
+
+# One table per repository. The name: lowercase letters, digits and dashes. Only `path` is required.
+[targets.example]
+path = "~/src/example-repo"           # main checkout (must be a git checkout); worktrees come from its remote base branch
+base_branch = "main"                  # default "main"
+remote = "origin"                     # default "origin"
+# "personal" (default) or "controlled" (a company repository: `target add` proposes it there). Controlled: new
+# tickets default to the bmad pipeline when BMad is ready here, every ticket stops at the approval gate after
+# planning, a dependant never starts on its own (the inbox asks "local-3 bitti; local-4 başlasın mı?"),
+# pr_replies is ignored (with a load warning), and the lead's proposals are never started for you.
+mode = "personal"
+plan_model = "fable"                  # default "fable": stages with model = "plan" (plan, reproduce, project write, BMad plan)
+build_model = "opus"                  # default "opus": stages with model = "build" (verify, implement, review, doc review, BMad build)
+router_model = "sonnet"               # default "sonnet": proposes a ticket type for a request (`route`; no tools, one call)
+retro = true                          # default true: a done ticket with review comments, overruled or recurring findings,
+                                      # answers against the recommendation or sent PR feedback gets a read-only retro that
+                                      # proposes rules, decisions and pitfalls (panel: "Hafıza"; `ziggy memory`)
+retro_model = "sonnet"                # default "sonnet": that retro session's model (capped at $1)
+roadmap_model = "sonnet"              # default "sonnet": the read-only session behind "Yol haritası çıkar" (a roadmap
+                                      # draft for a project without one; capped at $1; `ziggy roadmap draft`)
+lead_model = "sonnet"                 # default "sonnet": the morning lead's read-only session (capped at $0.50)
+# lead_issue_label = "ziggy"          # open GitHub issues with this label are lead signals too; default: only issues
+                                      # assigned to gh_user
+# memory_dir = "~/notes/example/memory"  # project memory folder; default: the vault mapping, else the state folder
+# memory_budget = 4096                # bytes of memory recalled into each stage prompt (256-65536); default 4096
+timeout = 5400                        # default 5400: seconds per headless session, unless the stage sets its own
+quiet_after = 900                     # default 900: seconds without agent events before a session counts as quiet
+stall_after = "10m"                   # default 10m: one tool call running longer is an inbox item (nothing is stopped)
+max_active = 2                        # default 2: headless runs at once in this target; more wait in line
+# budget_usd = 6                      # per session cap (claude --max-budget-usd); default: no cap
+github_repo = "example-org/example-repo"  # owner/name where `publish` opens draft PRs; no default
+gh_user = "example-gh-account"        # gh account whose token pushes and opens PRs (`gh auth token --user`); no default
+# PR feedback: the PR sync (`ziggy sync`, and the panel every few minutes) reads review
+# comments, PR comments, reviews and failing checks of each open PR into the ticket (review page,
+# "GitHub geri bildirimi"). Bot comments are skipped unless their login is listed here. Default: none.
+# pr_feedback_bots = ["coderabbitai[bot]"]
+# After a round that fixed picked PR feedback is pushed, answer each item on GitHub ("Fixed in
+# <sha>: <summary>"). Default false: the reply is written as gh_user, so enable it only where that
+# is fine (a personal repository).
+# pr_replies = true
+
+# Run once per new worktree, outside the sandbox (network allowed), with cwd = the worktree. Default: none.
+# The headless run itself has no network, so dependencies must be in place after these, and the
+# worktree must still be clean: a `.venv/` ignore rule does not match a symlink, so the last
+# command makes a real .venv that sees the shared one through a .pth file.
+prepare = [
+    "test -x {state}/venv/bin/python || python3.12 -m venv {state}/venv",
+    "{state}/venv/bin/pip install --quiet -r requirements.txt pytest==8.4.2",
+    "rm -rf .venv && python3.12 -m venv .venv && echo {state}/venv/lib/python3.12/site-packages > .venv/lib/python3.12/site-packages/shared-venv.pth",
+]
+
+# Gitignored files of the main checkout copied into each ticket's worktree (only where the
+# worktree has none yet; tracked files and symlinks never are). Globs relative to `path`, no
+# '..' or '.git': `*` stays in one directory, `**` crosses them; a pattern without "/" matches
+# top-level files. Default: none.
+preserve = [".env", ".env.local", ".claude/settings.local.json"]
+
+# Run in the worktree, outside the sandbox, before `cleanup <id>` or the merged-PR cleanup
+# removes it (stop the ticket's dev server, drop its test database). Each has 180 s; a failure
+# keeps the worktree unless `cleanup <id> --force`. Default: none.
+teardown = [
+    "mongosh --quiet mongodb://127.0.0.1:27017/example_test_{run_id} --eval 'db.dropDatabase()' || true",
+]
+
+# One port range per ticket, held until its worktree is removed: `count` ranges of `size` ports
+# from `start` (here 4100-4109, 4110-4119, ...). Defaults start 4100 (1024-65535), size 10 (1-100),
+# count 100 (1-1000). Ranges of different targets must not overlap. Without `ports`: no ranges.
+ports = { start = 4100, size = 10, count = 100 }
+
+# Named additions to the checks' sandbox profile (below), opt-in per target; an unknown name is an error. Default: none.
+# "xcode": writes to SwiftPM's cache (~/Library/Caches/org.swift.swiftpm) and the simulator's test-manager socket
+# (/private/var/tmp), which `swift test --disable-sandbox` and `xcodebuild test` need. `target add` proposes it for
+# Xcode projects and Swift packages, with their checks.
+# check_sandbox = ["xcode"]
+
+# Run by the engine after a stage with `checks = true` (implement) reports READY, in the worktree,
+# under macOS sandbox-exec (no network but localhost; writes only in the worktree, the temp dirs
+# and this target's state dir). The first failure sends the work back to implement. Keep them
+# idempotent: a check that changes tracked files fails. Keys: name (letters, digits, space . _ -,
+# max 40, unique), run, timeout (duration, default 10m). Default: no checks.
+[[targets.example.checks]]
+name = "tests"
+run = ".venv/bin/python -m pytest -q"
+timeout = "20m"
+
+# Exported to prepare and teardown commands, to the headless run (the agent's test commands see
+# them) and to the checks. String values only. Default: none.
+[targets.example.env]
+DATABASE_URI = "mongodb://127.0.0.1:27017/example_test_{run_id}"
+
+# Standing notes for this target's agents live in its project memory folder's context.md
+# (next to rules.md, decisions.md, pitfalls.md, episodes.md), recalled into every stage prompt.
+# Entries you approve in the panel's "Hafıza" view (or `ziggy memory approve`) are appended there.

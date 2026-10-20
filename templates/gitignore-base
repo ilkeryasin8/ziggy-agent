@@ -1,0 +1,24 @@
+# OS and editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+
+# Dependencies and build output
+.venv/
+venv/
+__pycache__/
+*.pyc
+node_modules/
+dist/
+build/
+coverage/
+
+# Claude Code: local settings stay private
+.claude/settings.local.json
+

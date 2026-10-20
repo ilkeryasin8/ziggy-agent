@@ -1,0 +1,37 @@
+# Project doc: write docs/PROJECT.md in the worktree → adversarial doc review, which sends it back once if needed.
+name = "project"
+title = "Project doc"
+
+[ask_user]
+then = "write"
+max_rounds = 5
+
+[user_review]
+then = "write"
+
+[[stages]]
+id = "write"
+title = "Write"
+role = "product-architect"
+model = "plan"
+prompt = "project-write.md"
+result = "doc"
+writes = true
+timeout = "45m"
+# The first draft plus one revision sent back by the doc review.
+max_visits = 2
+
+[[stages]]
+id = "doc-review"
+title = "Doc review"
+role = "reviewer"
+model = "build"
+prompt = "doc-review.md"
+result = "review"
+writes = false
+tools_deny = ["Edit", "NotebookEdit"]
+timeout = "30m"
+max_visits = 2
+# Each round reads the whole doc again.
+incremental = false
+routes = { revise = "write", accept = "done" }

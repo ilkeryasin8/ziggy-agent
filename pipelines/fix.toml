@@ -1,0 +1,65 @@
+# Bug fix: reproduce (root cause + plan with a failing regression test first) → implement → review.
+name = "fix"
+title = "Fix"
+
+[ask_user]
+then = "reproduce"
+max_rounds = 5
+
+[user_review]
+then = "implement"
+
+[gate]
+after = ["reproduce"]
+risk = "high"
+
+[[stages]]
+id = "reproduce"
+title = "Reproduce"
+role = "dev"
+model = "plan"
+prompt = "reproduce.md"
+result = "plan"
+writes = false
+tools_deny = ["Edit", "NotebookEdit"]
+timeout = "1h"
+# A bug it cannot reproduce goes to the user (NEEDS_USER → ask_user, the default).
+
+[[stages]]
+id = "implement"
+title = "Implement"
+role = "dev"
+model = "build"
+prompt = "implement.md"
+result = "implement"
+timeout = "2h"
+quiet_after = "30m"
+# The first pass plus two rounds sent back by review or by failing checks; a loop past it fails the run.
+max_visits = 3
+# A session that goes quiet (no output for quiet_after while no tool it started runs) is interrupted and resumed in
+# its own session, at most twice per run with a doubling backoff. `ziggy nudge <id>` steers it the same way.
+retry = { on_quiet = true, max = 2 }
+# After READY the engine runs the target's [[targets.<name>.checks]]; a failure comes straight back here.
+checks = true
+routes = { checksFailed = "implement" }
+
+[[stages]]
+id = "review"
+title = "Review"
+role = "reviewer"
+model = "build"
+prompt = "review.md"
+result = "review"
+# Reports and routes; fixes go back to implement. It writes only the plan and deferred.md in the inbox.
+writes = false
+tools_deny = ["Edit", "NotebookEdit"]
+timeout = "45m"
+max_visits = 3
+# Later rounds review the commits since the previous review plus its open findings (incremental, the default;
+# `ziggy run <id> --full-review` reads the whole branch again) and think harder. On its last visit the
+# reviewer asks the user to settle what is still open (patch, defer or decide) instead of failing the run.
+visits = { 2 = { effort = "high" } }
+routes = { fix = "implement", converged = "done" }
+# Answers to the reviewer's questions come back to the reviewer; `askThen = "implement"` on the last visit
+# (adjudication) sends them to the implementer for one more round.
+ask_then = "review"

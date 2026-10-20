@@ -1,0 +1,54 @@
+# One slice of a split ticket (`ziggy split`): implement → review. There is no plan stage: the split seeds
+# PLAN with the parent's goal, acceptance criteria and decisions plus this slice's tasks, and the user already
+# approved that plan at the parent's gate, so there is no gate here either. The branch is stacked on the slice below.
+name = "slice"
+title = "Slice"
+
+[ask_user]
+then = "implement"
+max_rounds = 5
+
+[user_review]
+then = "implement"
+
+# A review that finds the code going the wrong way (an intent gap) sets the attempt aside and asks; the answers go
+# back to implement: there is no plan stage here (a slice that is published, or that the slice above is built on,
+# keeps its code).
+[intent_gap]
+then = "implement"
+
+[[stages]]
+id = "implement"
+title = "Implement"
+role = "dev"
+model = "build"
+prompt = "implement.md"
+result = "implement"
+timeout = "2h"
+quiet_after = "30m"
+# The first pass plus two rounds sent back by review or by failing checks; a loop past it fails the run.
+max_visits = 3
+# A session that goes quiet (no output for quiet_after while no tool it started runs) is interrupted and resumed in
+# its own session, at most twice per run with a doubling backoff. `ziggy nudge <id>` steers it the same way.
+retry = { on_quiet = true, max = 2 }
+# After READY the engine runs the target's [[targets.<name>.checks]]; a failure comes straight back here.
+checks = true
+routes = { checksFailed = "implement" }
+
+[[stages]]
+id = "review"
+title = "Review"
+role = "reviewer"
+model = "build"
+prompt = "review.md"
+result = "review"
+# Reports and routes; fixes go back to implement. It writes only the plan and deferred.md in the inbox.
+writes = false
+tools_deny = ["Edit", "NotebookEdit"]
+timeout = "45m"
+max_visits = 3
+# Later rounds review the commits since the previous review plus its open findings, and think harder. The review
+# reads the slice's own diff: its base is the branch of the slice below.
+visits = { 2 = { effort = "high" } }
+routes = { fix = "implement", converged = "done" }
+ask_then = "review"

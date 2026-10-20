@@ -1,0 +1,10 @@
+#!/bin/sh
+# Secondary check: rejects a push made while ZIGGY_RUN is set. The
+# Claude Code sandbox is the control; --no-verify or a core.hooksPath override
+# skips this hook. The pipeline wrapper pushes with the variable unset.
+
+if [ -n "${ZIGGY_RUN:-}" ]; then
+  echo "pre-push: push rejected; ZIGGY_RUN is set and only the pipeline wrapper may push" >&2
+  exit 1
+fi
+exit 0

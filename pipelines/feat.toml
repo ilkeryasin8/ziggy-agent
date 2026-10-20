@@ -1,0 +1,81 @@
+# Feature: plan → verify (may ask the user) → implement → review, which sends fixes back to implement
+# until the change converges.
+name = "feat"
+title = "Feature"
+
+[ask_user]
+then = "verify"
+max_rounds = 5
+
+[user_review]
+then = "implement"
+
+# Stop for the user's approval after planning when the plan rates the work risky or large.
+[gate]
+after = ["plan", "verify"]
+risk = "medium"
+size = "large"
+
+[[stages]]
+id = "plan"
+title = "Plan"
+role = "architect"
+model = "plan"
+prompt = "plan.md"
+result = "plan"
+writes = false
+tools_deny = ["Edit", "NotebookEdit"]
+timeout = "45m"
+# The verifier decides which open questions reach the user.
+next = { READY = "verify", NEEDS_USER = "verify" }
+
+[[stages]]
+id = "verify"
+title = "Verify"
+role = "reviewer"
+model = "build"
+prompt = "verify.md"
+result = "verify"
+writes = false
+tools_deny = ["Edit", "NotebookEdit"]
+timeout = "45m"
+next = { READY = "implement", NEEDS_USER = "ask_user" }
+
+[[stages]]
+id = "implement"
+title = "Implement"
+role = "dev"
+model = "build"
+prompt = "implement.md"
+result = "implement"
+timeout = "2h"
+quiet_after = "30m"
+# The first pass plus two rounds sent back by review or by failing checks; a loop past it fails the run.
+max_visits = 3
+# A session that goes quiet (no output for quiet_after while no tool it started runs) is interrupted and resumed in
+# its own session, at most twice per run with a doubling backoff. `ziggy nudge <id>` steers it the same way.
+retry = { on_quiet = true, max = 2 }
+# After READY the engine runs the target's [[targets.<name>.checks]]; a failure comes straight back here.
+checks = true
+routes = { checksFailed = "implement" }
+
+[[stages]]
+id = "review"
+title = "Review"
+role = "reviewer"
+model = "build"
+prompt = "review.md"
+result = "review"
+# Reports and routes; fixes go back to implement. It writes only the plan and deferred.md in the inbox.
+writes = false
+tools_deny = ["Edit", "NotebookEdit"]
+timeout = "45m"
+max_visits = 3
+# Later rounds review the commits since the previous review plus its open findings (incremental, the default;
+# `ziggy run <id> --full-review` reads the whole branch again) and think harder. On its last visit the
+# reviewer asks the user to settle what is still open (patch, defer or decide) instead of failing the run.
+visits = { 2 = { effort = "high" } }
+routes = { fix = "implement", converged = "done" }
+# Answers to the reviewer's questions come back to the reviewer; `askThen = "implement"` on the last visit
+# (adjudication) sends them to the implementer for one more round.
+ask_then = "review"

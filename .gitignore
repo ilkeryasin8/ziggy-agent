@@ -1,0 +1,13 @@
+# BMad is installed per checkout by scripts/bmad-setup.sh (pinned version); only the setup script and the build
+# records under _bmad-output/ are tracked. Claude Code's per-checkout files (.claude/) stay local: a hook that
+# installs BMad at session start belongs in your own .claude/settings.local.json, not in every clone.
+_bmad/
+.claude/
+
+# Python
+__pycache__/
+.pytest_cache/
+.venv/
+
+# macOS
+.DS_Store
