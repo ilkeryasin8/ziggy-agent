@@ -112,7 +112,7 @@ base_branch = "main"                  # default "main"
 remote = "origin"                     # default "origin"
 # "personal" (default) or "controlled" (a company repository: `target add` proposes it there). Controlled: new
 # tickets default to the bmad pipeline when BMad is ready here, every ticket stops at the approval gate after
-# planning, a dependant never starts on its own (the inbox asks "local-3 bitti; local-4 başlasın mı?"),
+# planning, a dependant never starts on its own (the inbox asks "local-3 done; start local-4?"),
 # pr_replies is ignored (with a load warning), and the lead's proposals are never started for you.
 mode = "personal"
 plan_model = "fable"                  # default "fable": stages with model = "plan" (plan, reproduce, project write, BMad plan)
@@ -120,13 +120,13 @@ build_model = "opus"                  # default "opus": stages with model = "bui
 router_model = "sonnet"               # default "sonnet": proposes a ticket type for a request (`route`; no tools, one call)
 retro = true                          # default true: a done ticket with review comments, overruled or recurring findings,
                                       # answers against the recommendation or sent PR feedback gets a read-only retro that
-                                      # proposes rules, decisions and pitfalls (panel: "Hafıza"; `ziggy memory`)
+                                      # proposes rules, decisions and pitfalls (panel: "Memory"; `ziggy memory`)
 retro_model = "sonnet"                # default "sonnet": that retro session's model (capped at $1)
 # answer_after = "4h"                 # default unset: a question round left that long goes on with its recommendations
                                       # (only when every question has one; never in mode = "controlled")
 codex_review = "off"                  # default "off": a done ticket gets the Codex second review on its own when "risky"
                                       # (its plan rated it high risk or large) or "always"; needs `codex`
-roadmap_model = "sonnet"              # default "sonnet": the read-only session behind "Yol haritası çıkar" (a roadmap
+roadmap_model = "sonnet"              # default "sonnet": the read-only session behind "Draft a roadmap" (a roadmap
                                       # draft for a project without one; capped at $1; `ziggy roadmap draft`)
 lead_model = "sonnet"                 # default "sonnet": the morning lead's read-only session (capped at $0.50)
 # lead_issue_label = "ziggy"          # open GitHub issues with this label are lead signals too; default: only issues
@@ -220,4 +220,4 @@ DATABASE_URI = "mongodb://127.0.0.1:27017/example_test_{run_id}"
 
 # Standing notes for this target's agents live in its project memory folder's context.md
 # (next to rules.md, decisions.md, pitfalls.md, episodes.md), recalled into every stage prompt.
-# Entries you approve in the panel's "Hafıza" view (or `ziggy memory approve`) are appended there.
+# Entries you approve in the panel's "Memory" view (or `ziggy memory approve`) are appended there.

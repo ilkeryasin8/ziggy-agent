@@ -4,6 +4,7 @@ All notable changes. Ziggy follows [semantic versioning](https://semver.org) fro
 
 ## Unreleased
 
+- Docs and screenshots use the panel's English labels; Linux is listed as supported (checks under bubblewrap).
 - `[targets.<name>.screens]`: screenshots of the app's pages at desktop and phone sizes after the checks.
 - `[slack] forward`: answer, approve, retry and steer any ticket from its Slack thread.
 - Engine checks on Linux, under bubblewrap.

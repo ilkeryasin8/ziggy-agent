@@ -78,7 +78,7 @@ service if the old one was installed, and records `migrated.json` in the new sta
 
 ### Add a target
 
-A target is a repository the pipeline works on. Either use the panel (Projeler → "Mevcut repoyu ekle"), or:
+A target is a repository the pipeline works on. Either use the panel (Projects → "Add an existing repo"), or:
 
 ```bash
 ziggy target add ~/src/example-repo            # propose the table, ask, append it to the config
@@ -96,16 +96,16 @@ commands by lockfile, test `env`, and `checks` from package scripts, CI workflow
 file it came from. It also says what the repository lacks (an `AGENTS.md`/`CLAUDE.md`, `docs/PROJECT.md`, ignore rules
 for folders `prepare` creates, …).
 
-On the panel: **İncele** fills the form and, when it has prepare or check lines, verifies them at once (free);
-**Doğrula** verifies the edited lines again; **Ajanla doldur** first runs the agent. Verification clones the checkout
+On the panel: **Inspect** fills the form and, when it has prepare or check lines, verifies them at once (free);
+**Verify** verifies the edited lines again; **Fill in with agent** first runs the agent. Verification clones the checkout
 under the state directory, runs the prepare lines like a run would, runs each check exactly like the engine, and deletes
-the clone; each line shows `denendi · N sn`, `geçmedi: <reason>` or `denenmedi`. The agent session reads only (Read,
+the clone; each line shows `tried · N s`, `failed: <reason>` or `not tried`. The agent session reads only (Read,
 Grep, Glob; credential files unreadable), costs at most $1, and when the repository has no `AGENTS.md` it drafts one,
-which **Draft PR aç** opens as a draft PR. Nothing is saved until **Config'e ekle**; the table is appended to the end of
+which **Open draft PR** opens as a draft PR. Nothing is saved until **Add to config**; the table is appended to the end of
 the config with a backup kept. Details: [how-it-works.md](how-it-works.md), "Adding a target".
 
-A new repository from nothing: `ziggy project new <name> --description "…"` (or "Sıfırdan yeni proje" on the
-Projeler page) creates it with README, `AGENTS.md`, `.gitignore` and a `docs/PROJECT.md` stub, makes one first commit
+A new repository from nothing: `ziggy project new <name> --description "…"` (or "New project from scratch" on the
+Projects page) creates it with README, `AGENTS.md`, `.gitignore` and a `docs/PROJECT.md` stub, makes one first commit
 on `main`, creates the GitHub repository (private unless `--public`), pushes, and adds the target.
 
 ### First ticket
@@ -120,8 +120,8 @@ ziggy approve local-1          # when it stops at the approval gate
 ziggy publish local-1          # when it is done: push and open a draft PR
 ```
 
-Or use the panel's composer on the home page: project, title, type, text, "Plan onayı iste", output language,
-"Sonra başla", then "Oluştur" or "Oluştur ve başlat".
+Or use the panel's composer on the home page: project, title, type, text, "Ask for plan approval", output language,
+"Start after", then "Create" or "Create and start".
 
 The target is the configured one whose checkout (or ticket worktree) contains the current directory; elsewhere
 `default_target`; `--target <name>` (before the command) overrides both. `new` without a title opens `$VISUAL`/`$EDITOR`
@@ -139,44 +139,44 @@ memory), 3 waiting for you (questions or the approval gate), 1 the run failed, 2
 Turkish: it follows the browser's language and remembers the "EN · TR" switch at the bottom of the sidebar
 (`web/i18n.js`; the code's texts are Turkish keys with English in `web/i18n/*.en.js`, and `tests/test_i18n.py` fails
 on a text left untranslated). Texts the server builds go through the same dictionaries, with patterns for their
-variable parts; a failed run's time report ("zaman aşımı (45 dk): …") is assembled from too many pieces and may keep
+variable parts; a failed run's time report ("timeout (45 min): …") is assembled from too many pieces and may keep
 Turkish words in English. The quick guide below names the Turkish labels. It runs the same commands as the terminal: buttons start `ziggy <command>` as detached jobs
 (`runs/<id>/jobs/`), so a run outlives a panel restart.
 
 The panel is built to stay open: a sidebar with the pages, their counts, "Yeni ticket" (N, or ⌘K for the command bar),
-the inbox ("Gelen kutusu"), the run slots per target, the quota of each Claude login ("Kota": `5 sa %18 · 7 gün %11`,
+the inbox ("Inbox"), the run slots per target, the quota of each Claude login ("Quota": `5 sa %18 · 7 gün %11`,
 orange from 80 %, red with the reset time while the limit is reached) and the health line. The look ("Volt") keeps its
 lime accent for what waits on you; running work is blue and moves, finished work goes quiet. v1 is dark only and laid
 out for the desktop.
 
 | Page | What it is for |
 |---|---|
-| "Komuta" | the command bar (new ticket: project, type, line, body, plan gate, language, "sonra başla"), today's and the week's cost, "Bugün" (what finished or merged yesterday, what waits on you by kind, the lead's proposals, each Claude login's 5-hour and weekly quota), "Sende N iş var" (the board), "Sıradaki işler" (the lead's proposals per project, right below what waits on you), today's events from the inbox, the last finished tickets |
+| "Command" | the command bar (new ticket: project, type, line, body, plan gate, language, "Start after"), today's and the week's cost, "Today" (what finished or merged yesterday, what waits on you by kind, the lead's proposals, each Claude login's 5-hour and weekly quota), "N waiting on you" (the board), "Up next" (the lead's proposals per project, right below what waits on you), today's events from the inbox, the last finished tickets |
 | "Ticket'lar" | every ticket, status tabs, search and project filter, "Temizlik" (worktrees of merged or closed PRs) |
-| "Projeler" | the targets as cards (open tickets, cost, sessions, run slots), "Mevcut repoyu ekle", "Sıfırdan yeni proje"; a project's page: its roadmap ("Yol haritası", see Roadmap), `docs/PROJECT.md` on the base branch, "Tip öner", "Açık PR'lar", its tickets |
-| "Oturumlar" | the other Claude Code sessions on this machine (desktop, terminal, VS Code, headless): open or recently ended, the resume command, the transcript |
-| "İstatistik" | cost today, 7 and 30 days, total; "Teslim" (merged PRs per project over 30 days: how many, the share merged without a change request after the PR opened, change rounds per PR, quota per PR); daily cost by stage; cost per project; per-stage cost and averages; models; outcomes; most expensive tickets; "Haftalık rapor" (the latest weekly report) |
-| "Hafıza" | the project memory per target: proposed entries and roadmap changes to approve, edit or reject, the rules, decisions, pitfalls and episodes with their use counts, "Unutalım mı?" on faded ones (see Project memory) |
-| ticket page | `#ticket/<target>/<id>`: the ticket's head and stage bar, "Sıradaki hamle senin" when it waits on you, the tabs, the chat beside them |
+| "Projects" | the targets as cards (open tickets, cost, sessions, run slots), "Mevcut repoyu ekle", "New project from scratch"; a project's page: its roadmap ("Roadmap", see Roadmap), `docs/PROJECT.md` on the base branch, "Suggest type", "Open PRs", its tickets |
+| "Sessions" | the other Claude Code sessions on this machine (desktop, terminal, VS Code, headless): open or recently ended, the resume command, the transcript |
+| "Stats" | cost today, 7 and 30 days, total; "Teslim" (merged PRs per project over 30 days: how many, the share merged without a change request after the PR opened, change rounds per PR, quota per PR); daily cost by stage; cost per project; per-stage cost and averages; models; outcomes; most expensive tickets; "Weekly report" (the latest weekly report) |
+| "Memory" | the project memory per target: proposed entries and roadmap changes to approve, edit or reject, the rules, decisions, pitfalls and episodes with their use counts, "Forget it?" on faded ones (see Project memory) |
+| ticket page | `#ticket/<target>/<id>`: the ticket's head and stage bar, "Your move" when it waits on you, the tabs, the chat beside them |
 
-The board on "Komuta" has five groups, each card with its next step first (j/k move, Enter takes the step); the first
-card waiting on you is drawn lime. Cards and ticket rows carry the plan's risk when it is not low and "büyük" for a
-large change; among equally urgent items the riskier ticket comes first (`attention.triage_weight`), and "Review'a
-hazır" lists the riskiest done ticket first:
+The board on "Command" has five groups, each card with its next step first (j/k move, Enter takes the step); the first
+card waiting on you is drawn lime. Cards and ticket rows carry the plan's risk when it is not low and "large" for a
+large change; among equally urgent items the riskier ticket comes first (`attention.triage_weight`), and "Ready for
+review" lists the riskiest done ticket first:
 
 | Group | Holds |
 |---|---|
 | "Seni bekliyor" | a question round, a plan at the approval gate, a failed or lost run, a panel job that failed, new PR feedback, a stuck dependency, a slice to restack |
-| "Review'a hazır" | a done ticket without a PR |
-| "Canlı" | running agents as live lanes (stage bar, clock, cost, the last activity lines), including quiet ones |
-| "Sırada" | tickets waiting for others ("Bekliyor: local-3 bitince"), tickets waiting for a usage limit to reset ("Kota doldu · 15:05'te devam") or for the machine's memory ("Makine bellekte zorlanıyor · bekliyor"), split tickets with their slices |
+| "Ready for review" | a done ticket without a PR |
+| "Live" | running agents as live lanes (stage bar, clock, cost, the last activity lines), including quiet ones |
+| "Queued" | tickets waiting for others ("Bekliyor: local-3 bitince"), tickets waiting for a usage limit to reset ("Quota full · resumes at 15:05") or for the machine's memory ("Machine is short on memory · waiting"), split tickets with their slices |
 | "Teslimde" | open PRs, a branch ahead of its PR, a closed PR whose worktree still holds work |
 
 Failures, lost runs, job errors, PR feedback and reminders can be closed with "Kapat" (that occurrence only);
 questions, approvals and quiet sessions need an action. A ticket's page has the tabs "Plan", "Sorular",
-"Değişiklikler" (the review page: diff, findings, comments, PR feedback, guide, evidence, PR draft), "Review" (Codex
-reviews), "Kayıt" ("Etkinlik" live activity, "Aşamalar" every stage session with prompt, result, transcript, checks
-log, cost, and "Job'lar") and "Ticket metni"; the chat ("Ajanla konuş") sits beside them. Esc goes back. Old
+"Changes" (the review page: diff, findings, comments, PR feedback, guide, evidence, PR draft), "Review" (Codex
+reviews), "Log" ("Etkinlik" live activity, "Stages" every stage session with prompt, result, transcript, checks
+log, cost, and "Job'lar") and "Ticket metni"; the chat ("Talk to the agent") sits beside them. Esc goes back. Old
 `#review/<target>/<id>` and `#needs` links still open the right place.
 
 The panel listens on 127.0.0.1 only, answers only to a loopback `Host`, takes only same-origin JSON POSTs and sends a
@@ -230,7 +230,7 @@ of the target is busy. `<command> --help` lists each command's flags.
 | `nudge <id>` | steer the running stage with a message (`--text`/`--file`/stdin) |
 | `chat <id> --text "…"` | ask about a ticket in a read-only session (`--new`, `--model`) |
 | `chat-stop <id>` | stop the reply being written |
-| `talk new\|send\|list\|stop\|delete` | Sohbet: free chats about the target, read-only or in a worktree of their own (`new --write`; `send <id> --text`, `--model`; `delete <id> --force`) |
+| `talk new\|send\|list\|stop\|delete` | Chat: free chats about the target, read-only or in a worktree of their own (`new --write`; `send <id> --text`, `--model`; `delete <id> --force`) |
 | `inbox` | what needs you across every target (`--all`, `--seen`, `--json`) |
 | `stats` | cost (today, 7 and 30 days, per project) and delivery: merged PRs over 30 days, share without change requests, change rounds and quota per PR (`--json`) |
 | `report` | the weekly report as Markdown, up to yesterday (`--save`: also to `<state>/reports/`) |
@@ -257,7 +257,7 @@ of the target is busy. `<command> --help` lists each command's flags.
 | `retro <id>` | look back at a ticket now and propose memory entries (rules, decisions, pitfalls) |
 | `protected <id> [list\|apply <n>\|reject <n>]` | the ticket's patches of protected files (`AGENTS.md`, `.claude/settings.json`): list them with their diffs, apply one on the ticket branch as a commit, or reject it (`--reason`) |
 | `memory [list\|candidates\|approve\|reject\|forget] [id]` | the project memory and its candidates (`--target`; with approve: `--text` your wording, `--title`, `--replace` to supersede similar entries) |
-| `roadmap [show\|draft\|link <item> <ticket>]` | the target's roadmap (`--target`): show it with each item's status, draft one (read-only session; the panel's "Yol haritası çıkar" job), or link a ticket to an item (`R-3`, or a BMad story key `1-2`) |
+| `roadmap [show\|draft\|link <item> <ticket>]` | the target's roadmap (`--target`): show it with each item's status, draft one (read-only session; the panel's "Draft a roadmap" job), or link a ticket to an item (`R-3`, or a BMad story key `1-2`) |
 | `lead [run\|list\|start\|reject] [id]` | the morning lead: `run` (the default) runs today's when its time came (`--now`: at once) and lists the proposals; `start p<n>` creates and runs the ticket (`--lang`; `--no-run` only creates it, the only way in a controlled target); `reject p<n>` (`--reason`); every target unless `--target` |
 | `target add <path>` | propose and append a target table (`--name`, `--mode controlled\|personal`, `--yes`, `--verify`, `--agent`) |
 | `target suggest <path>` | the panel's onboarding job (agent and verification of a request); not for direct use |
@@ -276,19 +276,19 @@ of the target is busy. `<command> --help` lists each command's flags.
 A `NEEDS_USER` result opens a question round: the ticket waits as `needs-user` with questions, options and a recommended
 answer. In `feat`, the plan's questions go to the verify stage first, which settles what the code can answer. `answer`
 closes the round, appends it to `runs/<id>/answers.md` and the plan's `## Decisions (user)`, and continues at the stage
-the pipeline names. After `max_rounds` (5) rounds the run fails. On the panel, "Yardım iste" on a question round opens
+the pipeline names. After `max_rounds` (5) rounds the run fails. On the panel, "Ask for help" on a question round opens
 the chat about it.
 
 A target's `answer_after` (a duration, e.g. `"4h"`; unset by default) lets a round that waited that long go on with
 its recommendations: the panel's minute tick answers it (`by` "ziggy", `via` "timeout", the text says so) and starts
-the run, and the question card says when ("Cevap gelmezse 15:05'te önerilenlerle devam eder"). Only when every
+the run, and the question card says when ("If no answer comes, it continues at 15:05 with the suggested answers"). Only when every
 question has a recommendation; never for an intent gap or a last visit's settling, and never in controlled mode
 (the key is ignored there with a warning).
 
 The approval gate stops a run as `awaiting-approval` after a gated stage when the highest reported risk or size reaches
-the pipeline's threshold, or always with `--plan-checkpoint` ("Plan onayı iste"). Risk and size are never lowered once
-reported. The approval card has "Onayla → devam" (`approve`), "Değişiklik iste" (`answer`: your text becomes a decision
-and goes back to the stage that takes answers), "Planı oku", and "Dilimlere böl" when the plan can be split (the approve
+the pipeline's threshold, or always with `--plan-checkpoint` ("Ask for plan approval"). Risk and size are never lowered once
+reported. The approval card has "Onayla → devam" (`approve`), "Request changes" (`answer`: your text becomes a decision
+and goes back to the stage that takes answers), "Read the plan", and "Split into slices" when the plan can be split (the approve
 button then reads "Onayla → tek PR").
 
 ### Review rounds and dispositions
@@ -321,7 +321,7 @@ commands and their latest results, so implement runs only targeted tests and rev
 
 A check that fails on a branch that changed something is run once more on the run's base commit (`checks.at_base`: the tracked files as the base has
 them for the duration, the index untouched, the branch's files back afterwards). Failing there too, it is
-**pre-existing**: marked in the result and on the panel (amber, "(önceden)"), not sent back, and the next checks still
+**pre-existing**: marked in the result and on the panel (amber, "(pre-existing)"), not sent back, and the next checks still
 run; the base's status is remembered per run (`run.baselines`). Passing there, the change broke it and it goes back.
 
 A `fix` proves itself (`regression = true` on its implement stage): after the checks pass, the `regressionTest`
@@ -366,7 +366,7 @@ the flags. `.build/` should be git-ignored, or each check's build output is remo
 
 A check that fails in its environment rather than in the code (today: a tool refused a sandbox inside the check's,
 `sandbox_apply: Operation not permitted`) fails the ticket at once with that line and the fix, instead of sending the
-code back to the implementer. Once the command or preset is fixed, "Yalnız check'leri tekrar koştur" (`recheck <id>`)
+code back to the implementer. Once the command or preset is fixed, "Re-run only the checks" (`recheck <id>`)
 runs only the checks on the branch as it is, with the earlier READY result carried over (no session, no cost), and
 the pipeline continues from there; a code failure then goes back to the implementer as usual.
 
@@ -379,30 +379,30 @@ plan gives a "prepare a patch" task and implement saves a unified diff under the
 passes on the branch HEAD), stores it as `runs/<id>/protected/<n>.patch` and goes on: the ticket does not fail (an
 implement that still returned `FAILED` only for that, with such a patch among its artifacts, is read as `READY` with a
 warning). A newer patch of the same file supersedes the older pending one, so one card per file waits. The review
-sees the pending patches and does not send that change back. The inbox shows "Korumalı dosya
-değişikliği: AGENTS.md" with the diff: **Uygula** checks the patch again on the current HEAD, applies it and commits
+sees the pending patches and does not send that change back. The inbox shows "Protected file
+change: AGENTS.md" with the diff: **Apply** checks the patch again on the current HEAD, applies it and commits
 `docs(<id>): apply approved change to AGENTS.md` on the ticket branch (refused while a stage runs, on a dirty worktree
-or when it no longer applies); a published ticket then shows "PR'ı güncelle". A patch prepared without an earlier one
-you applied ("önceki #1'in yerini alır") replaces it: its own result is committed with "(supersedes #1)", unless
+or when it no longer applies); a published ticket then shows "Update PR". A patch prepared without an earlier one
+you applied ("replaces earlier #1") replaces it: its own result is committed with "(supersedes #1)", unless
 someone else changed the file since. **Reddet** records the refusal with an
 optional reason. Publishing never waits for it; the PR form says one is pending. CLI: `ziggy protected <id>` (with
 each patch's status).
 
 ### Review page, PR draft and publish
 
-"Değişiklikleri incele" shows the branch's diff (all changes, since one of your reviews or a pipeline review round, or
+"Review changes" shows the branch's diff (all changes, since one of your reviews or a pipeline review round, or
 one commit), with the pipeline's findings on their lines (class, severity, confidence, verified, disposition,
 implement's outcome). Each file has a risk score (`changes.file_risk`: its open findings by severity, +6 for a file
 that runs in CI or steers agents, +4 for a dependency manifest or lockfile, up to +4 for the size; a test or
-generated file counts a quarter), shown as "risk N" / "riskli · N" with its reasons; "Risk sırası" lists the files
-by it instead of the tree ("Ağaç"), remembered per browser. "Görüldü" ticks stay per file content. Press **+** on a line for a draft comment, or answer a finding with "Düzelt" / "Boşver";
-"Açık önemlileri seç" and "Seçilenleri düzelt" send the last round's open important findings back. "Değişiklik iste"
+generated file counts a quarter), shown as "risk N" / "riskli · N" with its reasons; "Risk order" lists the files
+by it instead of the tree ("Tree"), remembered per browser. "Seen" ticks stay per file content. Press **+** on a line for a draft comment, or answer a finding with "Fix" / "Dismiss";
+"Select open important" and "Fix selected" send the last round's open important findings back. "Request changes"
 (`request-changes`) sends the drafts as a `## Review (user, round N)` section of the plan and starts a new run.
-"Reviewer rehberi" is the latest review's per-file guide; "Kanıt" lists the screenshots, recordings and logs the stages
+"Reviewer rehberi" is the latest review's per-file guide; "Evidence" lists the screenshots, recordings and logs the stages
 saved under `inbox/artifacts/`.
 
 "Onayla → Draft PR" opens the PR draft (title and description composed from the plan, the guide and the evidence,
-both editable); "Push et, draft PR aç" runs `publish --title … --body-file -`. `publish` refuses a protected or base
+both editable); "Push and open draft PR" runs `publish --title … --body-file -`. `publish` refuses a protected or base
 branch and a title, body or commit with a `Co-Authored-By` line, pushes one branch, opens the PR as a draft, and reuses
 an open PR for the branch.
 
@@ -441,10 +441,10 @@ seed, hidden tests fail there and pass with the solution. `eval list` lists them
 ### Codex review and open PRs
 
 `review <id>` (**Codex review**) runs `codex review --base <remote>/<base>` in the worktree, in Codex's read-only
-sandbox. "PR'a yorum ekle" posts a review to the draft PR; "Bulguları düzelttir" → "Gönder ve koştur" (`fix`) turns the
+sandbox. "PR'a yorum ekle" posts a review to the draft PR; "Have the findings fixed" → "Send and run" (`fix`) turns the
 findings you kept into a `## Review (codex, round N)` section and a new run. The project page lists the repository's
 open PRs (`prs`); any PR not opened by the pipeline can be adopted (`adopt <n>`) as ticket `pr-<n>` on a local branch at
-the PR's head, reviewed and fixed, then pushed back to the PR's own branch with "PR'a gönder": fast-forward only, never
+the PR's head, reviewed and fixed, then pushed back to the PR's own branch with "Push to PR": fast-forward only, never
 to a fork, and to someone else's PR only after a confirm (`publish --foreign-ok`).
 
 `codex_review` (per target) starts the Codex review on its own when a run ends done: `"off"` (default), `"risky"` (the
@@ -456,8 +456,8 @@ plan rated the ticket high risk or large) or `"always"`. It runs as a background
 Every PR sync (the panel every 3 minutes, or `sync`) reads each ticket's open PR as the target's `gh_user`, never from an
 agent: line comments, conversation comments, reviews with a body and failing checks (an Actions check with the last 200
 lines of its job log up to the last error). Bot comments are skipped unless listed in `pr_feedback_bots`. The inbox shows
-"PR'da N yeni yorum" / "PR'da CI kırmızı". On the review page, "GitHub geri bildirimi" lists the items ("Şimdi yenile"
-reads now); "Seçilenleri düzelt" (`request-changes <id> --github <item id> …`) adds a `## Review (github, round N)`
+"PR'da N yeni yorum" / "CI is red on the PR". On the review page, "GitHub geri bildirimi" lists the items ("Refresh now"
+reads now); "Fix selected" (`request-changes <id> --github <item id> …`) adds a `## Review (github, round N)`
 section, the text quoted as untrusted data, and starts a run. When it ends done the branch is pushed so the PR updates.
 With `pr_replies = true` (off by default) the pipeline also replies on GitHub ("Fixed in <sha>: …").
 
@@ -469,8 +469,8 @@ the target's `memory_dir` if set; else, with `[memory] vault` configured, the en
 whose `vault_dir` exists, giving `<vault>/<vault_dir>/memory`. Without one, the nearest parent entry that names one
 project (no `{leaf}` in it, e.g. `~/Developer/acme/field` → a folder for a frontend and a backend repo) gives each repo
 its own `<vault>/<vault_dir>/memory/<repo folder>`, so repos sharing a project folder never mix. A catch-all parent
-(`{leaf}`) is never used; then it is `~/.local/state/ziggy/<target>/memory` and "Hafıza" says why
-("… bu repoya özel eşleme yok (projects.json)").
+(`{leaf}`) is never used; then it is `~/.local/state/ziggy/<target>/memory` and "Memory" says why
+("… has no mapping of its own for this repo (projects.json)").
 
 The folder holds `context.md` (free-form standing notes), `rules.md` (kural), `decisions.md` (karar), `pitfalls.md`
 (tuzak) and `episodes.md` (olay). Each entry is a `## M-12 · tuzak · <title>` heading with a few `- Field: value`
@@ -483,9 +483,9 @@ with new evidence of what went wrong (your sent review comments, dismissed findi
 several rounds repeated, answers against the recommendation, your notes, PR feedback, checks that were fixed, recovered
 runs, intent gaps), a background `retro` session proposes rules, decisions and pitfalls: one read-only session with
 the target's `retro_model` (default `sonnet`), at most $1 and 10 minutes, no edit, shell or subagent tools; and the
-migration below. Candidates wait on "Hafıza" and in the inbox ("N yeni hafıza önerisi"), with similar existing entries
-shown. "Onayla" appends the entry, "Düzenle ve onayla" with your wording (optionally replacing the similar ones, which
-get `Durum: yerini aldı M-<new>`), "Reddet" drops it. Nothing but episodes enters memory without your approval;
+migration below. Candidates wait on "Memory" and in the inbox ("N new memory proposals"), with similar existing entries
+shown. "Onayla" appends the entry, "Edit and approve" with your wording (optionally replacing the similar ones, which
+get `Durum: yerini aldı M-<new>`), "Reject" drops it. Nothing but episodes enters memory without your approval;
 `retro = false` turns the automatic pass off. An episode (ticket, outcome, cost, touched paths, PR, later its merge)
 is appended when a ticket is done.
 
@@ -494,7 +494,7 @@ every active rule, then the decisions and pitfalls whose scope matches the files
 the plan's expected files) or whose topics appear in the ticket, and for plan-type stages up to 3 episodes. Agents
 list the ids they relied on in `memoryUsed` (review findings may cite one in `memory`); the counts go to
 `<target>/memory/usage.json` and the ticket page shows what each session saw and used. Decisions, pitfalls and
-episodes unused for 60 days are marked faded ("soluk") with "Unutalım mı?"; nothing is removed automatically
+episodes unused for 60 days are marked faded ("soluk") with "Forget it?"; nothing is removed automatically
 ("Unut" / `memory forget` sets `Durum: unutuldu`). Each entry also learns how the tickets that used it ended
 (`usage.json` `outcomes`): "clean" when the PR merged with no change asked, "rework" once a person or GitHub asked for
 changes. An entry most of whose tickets (at least 3, two thirds) needed changes and none merged clean, or a decision,
@@ -507,7 +507,7 @@ files stay in place, unread.
 
 ### Roadmap
 
-A project's long-term plan, shown on its page as "Yol haritası": phases with a progress bar (merged and done items
+A project's long-term plan, shown on its page as "Roadmap": phases with a progress bar (merged and done items
 over all), each item with its status, linked ticket and PR. Where it comes from:
 
 - **BMad** (the main checkout has `_bmad-output/planning-artifacts/epics.md`): phases are its `## Epic N: …` sections
@@ -518,34 +518,34 @@ over all), each item with its status, linked ticket and PR. Where it comes from:
 - **Memory**: `roadmap.md` in the project memory folder (the vault folder mapped to the repo, or Ziggy's state), with
   the memory files' frontmatter: `## P1 · title` phases (optional `- Durum: aktif|bitti`), `- [ ] R-3 · title` items
   (`- [x]` done), an indented `- Ticket: local-7 · PR: <url> · Durum: pr` line Ziggy keeps, and indented notes (the
-  item's detail). Edits in Obsidian win; what it cannot read is a warning (project page, "Hafıza", inbox).
+  item's detail). Edits in Obsidian win; what it cannot read is a warning (project page, "Memory", inbox).
 
 Progress is automatic, no approval: a ticket made from an item (`origin = {kind: roadmap, item}` in its ticket.json, or
 `ziggy roadmap link`) moves it to ticket → in-progress → review (done) → pr → merged (PR merged: `[x]`); only that
 item's line and checkbox change, a status never goes back, a phase whose items are all merged or done becomes `bitti`
 and the next unfinished phase `aktif`. Scope changes (add an item to a phase, remove or move one, add a phase) are
-memory candidates of kind `yol`: they wait on "Hafıza" with the others, and "Onayla" makes the edit in `roadmap.md`.
+memory candidates of kind `yol`: they wait on "Memory" with the others, and "Onayla" makes the edit in `roadmap.md`.
 
-"Ticket aç" on an item that has not started fills the command bar (title, body = the item, its phase, detail and
-`Kaynak: yol haritası R-3`) with the item as origin; the ticket page then shows "Yol haritası: P2 · R-3". A project
-without a roadmap gets "Yol haritası çıkar": one read-only session (the target's `roadmap_model`, default `sonnet`, at
+"Open ticket" on an item that has not started fills the command bar (title, body = the item, its phase, detail and
+`Kaynak: yol haritası R-3`) with the item as origin; the ticket page then shows "Roadmap: P2 · R-3". A project
+without a roadmap gets "Draft a roadmap": one read-only session (the target's `roadmap_model`, default `sonnet`, at
 most $1, no edit, shell, subagent or web tools, cwd the main checkout) reads the README, `docs/PROJECT.md`, the specs
 and the memory's context and decisions, and proposes phases and items. The draft opens in an editor; nothing is
 written until "Taslak olarak kaydet". A BMad project without epics gets a note to create them with BMad instead.
 
 ### Dependencies and stacked slices
 
-`new --after local-3` (repeatable; "Sonra başla" in the composer) makes a ticket wait (status `waiting`) until those
+`new --after local-3` (repeatable; "Start after" in the composer) makes a ticket wait (status `waiting`) until those
 tickets of the same target are done, then start on its own (in a controlled target it asks first, see Controlled
 mode); `after <id> …` changes the list before it runs. Cycles are refused. A dependency that failed, was archived
 undone or had its PR closed unmerged leaves an inbox item ("Bekliyor ama …").
 
 At the approval gate, a plan with two or more `### S<n>:` slices rated size `large` or risk `high` can be split
-(`split`, "Dilimlere böl"): each slice becomes a ticket on branch `<parent branch>-s<n>`, stacked on the slice below,
+(`split`, "Split into slices"): each slice becomes a ticket on branch `<parent branch>-s<n>`, stacked on the slice below,
 running the `slice` pipeline; the first starts at once, each next one when the one below is done. Publishing a slice
 publishes the ones below first; each PR's base is the branch below and its body ends with a `## Stack` section. When a
 slice's PR merges, the sync moves the next PR's base. After a squash or rebase merge the next slice needs a rebase:
-`restack <id>` ("Yeniden düzenle"), then `restack <id> --push` (force-with-lease of the ticket's own branch: the only
+`restack <id>` ("Rebase"), then `restack <id> --push` (force-with-lease of the ticket's own branch: the only
 forced push the pipeline makes).
 
 ### Intent gaps
@@ -554,11 +554,11 @@ When implement or review finds that the change answers a different intent than t
 assumption the code proved wrong), it returns `NEEDS_USER` with `intentGap` instead of patching around it. The engine
 saves what the run built as `runs/<id>/attempts/attempt-<n>.patch`, resets the ticket branch to before the first
 implement (never a published branch, nor a slice another slice is built on), and opens a question round; the panel
-shows "Niyet sapması". Your answers go into the plan and the run continues at the pipeline's `[intent_gap] then` stage.
+shows "Intent gap". Your answers go into the plan and the run continues at the pipeline's `[intent_gap] then` stage.
 
 ### Deferred findings to tickets
 
-Each deferred finding in the ticket page's Plan tab has "Ticket'a çevir": it fills the composer (type `fix` for a bug
+Each deferred finding in the ticket page's Plan tab has "Make a ticket": it fills the composer (type `fix` for a bug
 finding, else `chore`; the finding as title and text) and nothing runs until you create it. The new ticket records
 where it came from, and the finding then links to it instead of offering a second ticket.
 
@@ -570,7 +570,7 @@ may opt into the `bmad` pipeline: `new --pipeline bmad`, or "Hat: BMad" in the c
 review, the review page, chat and the draft PR stay the same. The engine commits `_bmad-output/` on the ticket branch.
 BMad's six gitignored per-developer files must exist in the main checkout (run BMad's setup there); each worktree gets
 copies, and creating a BMad ticket is refused without them. The panel marks each project "BMad kurulu (<version>)",
-"BMad kurulu · yerel dosya eksik" or "BMad yok".
+"BMad kurulu · yerel dosya eksik" or "No BMad".
 
 ### Controlled mode
 
@@ -584,14 +584,14 @@ A target's `mode` is `personal` (the default) or `controlled`, for repositories 
   tickets made before the switch too. A slice runs the `slice` pipeline, which has no gate: its plan was approved at
   the parent's;
 - never starts a dependant on its own: when the last ticket it waits for is done, the inbox asks
-  ("local-3 bitti; local-4 başlasın mı?") with "Başlat" (`run`); the same holds for the next slice of a stack;
+  ("local-3 done; start local-4?") with "Start" (`run`); the same holds for the next slice of a stack;
 - never answers on GitHub: `pr_replies = true` is ignored, with a load warning (`uyarı: …` in the terminal, a warning
   chip on the panel's health line).
 
-The panel marks its project and tickets "Kontrollü". The lead's proposals stay proposals in a controlled target: only
-"Ticket olarak aç" (the composer, prefilled), never "Başlat" (see The lead).
+The panel marks its project and tickets "Controlled". The lead's proposals stay proposals in a controlled target: only
+"Open as ticket" (the composer, prefilled), never "Start" (see The lead).
 
-### The lead (Sıradaki işler)
+### The lead (Up next)
 
 Every morning the lead looks at each project and proposes what to work on next (`ziggy/lead.py`):
 
@@ -604,15 +604,15 @@ Every morning the lead looks at each project and proposes what to work on next (
   type, text, why, the signal keys it came from, size). A key that a pending or rejected proposal holds, or that an
   open ticket made from a proposal works on, is not proposed again; a pending proposal expires after 7 days. When the
   login is blocked or its 5-hour window is at 80 % or more (or the session gives no answer), the top signals become
-  drafts as they are, marked "ajansız".
+  drafts as they are, marked "agentless".
 - **Schedule**: `[lead] at` (local time, default `08:30`) and `enabled`: the panel's 60 s tick starts each project's lead
   once a day at or after that time; a machine that slept through it runs it on the first tick after waking
   (`~/.local/state/ziggy/lead/last_run.json`). "Yenile" and `ziggy lead run --now` run it at once.
-- **Actions** on "Komuta" → "Sıradaki işler", each proposal with its why and its sources: in a personal project
-  "Başlat" creates the ticket (`origin = {kind: lead, proposal}`) and runs it, "Düzenle" opens the composer prefilled; in
-  a controlled project only "Ticket olarak aç" (the composer; you create it). "Reddet" takes an optional reason. A
+- **Actions** on "Command" → "Up next", each proposal with its why and its sources: in a personal project
+  "Start" creates the ticket (`origin = {kind: lead, proposal}`) and runs it, "Edit" opens the composer prefilled; in
+  a controlled project only "Open as ticket" (the composer; you create it). "Reddet" takes an optional reason. A
   ticket made from a proposal is linked to the proposal's roadmap items, which then move with it (ticket → in-progress
-  → review → pr → merged). The inbox shows "N yeni iş önerisi" per project.
+  → review → pr → merged). The inbox shows "N new work proposals" per project.
 
 Proposals live in `~/.local/state/ziggy/<target>/lead/proposals.json`, sessions in `<target>/lead/NN-lead/` (stage
 `lead` in the stats). `ziggy lead [run|list|start|reject] [id] [--target NAME] [--now] [--reason …]` does the same
@@ -623,15 +623,15 @@ from the terminal.
 Every session (stage, chat, retro, roadmap draft, onboarding) reports the Claude subscription's limits in its stream
 (`rate_limit_event`: status `allowed`, `allowed_warning` or `rejected`, the 5-hour and weekly windows' utilization and
 reset times). Ziggy keeps the latest per Claude login (the target's resolved `CLAUDE_CONFIG_DIR`, else `default`;
-labelled with the login's email) in `~/.local/state/ziggy/quota.json`. The sidebar's "Kota" and `status` show it.
+labelled with the login's email) in `~/.local/state/ziggy/quota.json`. The sidebar's "Quota" and `status` show it.
 
 When a stage's session hits the limit (its last event is `rejected`, or it ended on a usage-limit error such as
 "You've hit your session limit · resets 8pm (Europe/Istanbul)"), the stage does not fail: the login is marked blocked
-until the window resets, the ticket waits with status `quota` ("Kota doldu · 15:05'te devam") and, a minute after the
+until the window resets, the ticket waits with status `quota` ("Quota full · resumes at 15:05") and, a minute after the
 reset (30 minutes when no reset time is known), the panel's tick resumes the same session with a short note on why it
-stopped. The error text is kept in the session's `run.json` (`quota_error`). The inbox shows "Kota doldu: <hesap> ·
-HH:MM" once per login until the reset. No stage starts on a blocked login: the ticket waits the same way ("Kota doldu ·
-HH:MM'de başlar") while other logins' tickets run on. A held ticket's "Şimdi başlat" (`run --now`) starts it anyway,
+stopped. The error text is kept in the session's `run.json` (`quota_error`). The inbox shows "Usage limit reached: <login> ·
+HH:MM" once per login until the reset. No stage starts on a blocked login: the ticket waits the same way ("Quota full ·
+starts at HH:MM") while other logins' tickets run on. A held ticket's "Start now" (`run --now`) starts it anyway,
 after a warning. The hold lives in the ticket's state, so a panel restart picks it up on its first tick.
 
 ### A busy machine (host)
@@ -639,40 +639,40 @@ after a warning. The hold lives in the ticket's state, so a panel restart picks 
 A Mac that swaps hard turns a `cat` into minutes and a stage into a timeout. Before every stage Ziggy samples the
 machine (`sysctl` memory pressure and `vm.swapusage`, the load average; cached a few seconds): while the pressure is
 critical, or it is warn with swap used at `[host] swap_hold` (0.9) of its total or more, the stage does not start and the ticket
-waits with status `host` ("Makine bellekte zorlanıyor · bekliyor"). The panel's tick starts it once the machine has
-been calm for two ticks in a row (one ticket per tick, the longest held first); "Şimdi başlat" (`run --now`) starts it
+waits with status `host` ("Machine is short on memory · waiting"). The panel's tick starts it once the machine has
+been calm for two ticks in a row (one ticket per tick, the longest held first); "Start now" (`run --now`) starts it
 anyway after a warning. Running stages are never stopped. The health line shows a chip ("Bellek: kritik · swap %96")
 while the pressure is warn or critical (a full swap alone is normal on macOS and shows nothing); `status` prints a `# host` line; every stage's `run.json`
 keeps `host` samples (start, end, the worst seen). `[host] enabled = false` turns the hold off.
 
 ### Steering, retries and stalled runs
 
-`nudge <id>` ("Yönlendir") interrupts a live stage and resumes its own session with your message; with no session live
+`nudge <id>` ("Steer") interrupts a live stage and resumes its own session with your message; with no session live
 the message goes into the next stage's prompt. A stage's `[stages.retry]` policy resumes lost, timed-out and quiet
 sessions on its own (at most 2 per run, with backoff); "quiet" means no output for `quiet_after` seconds while no tool
 is running (a tool's heartbeats count as output). One tool call running past the target's `stall_after` (10 m) is an
-inbox item, "Komut 12 dk’dır sürüyor: grep -ril … · bellek kritik", with "Yönlendir" and "Durdur"; it goes away when
+inbox item, "A command has been running for 12 min: grep -ril … · memory critical", with "Steer" and "Durdur"; it goes away when
 the call returns or the stage ends, and nothing is stopped for it. A stage that ends by its timeout, by going quiet or
 by losing its process without a result says where its time went, first in the failure's text: "zaman aşımı (45 dk):
 sürenin 34 dk’sı (%76) en yavaş 3 komutu beklerken geçti (grep -ril … 25 dk, …); bellek baskısı kritikti" (its
 `run.json` keeps `time_report` and the slowest `tool_calls`). A ticket whose process is gone gets a "lost" card.
-`resume` ("Kaldığı yerden devam") continues a killed, crashed or timed-out session; a failed card also offers
-"Aşamayı tekrar koştur" and "Yön değiştir". A writing stage that resumes (after a retry, a quota wait, a nudge or
+`resume` ("Resume where it left off") continues a killed, crashed or timed-out session; a failed card also offers
+"Re-run the stage" and "Change direction". A writing stage that resumes (after a retry, a quota wait, a nudge or
 `resume`) gets PLAN's `## Goal & acceptance` and its open tasks again ahead of the stage's instruction
 (`plan.reminder`), so a long session does not lose the bar for done with its context.
 
 ### Ticket chat
 
-"Sohbet" (`chat <id> --text …`) answers questions about one ticket, one headless turn per message in the ticket's
+"Chat" (`chat <id> --text …`) answers questions about one ticket, one headless turn per message in the ticket's
 worktree (else the main checkout), with a system prompt rebuilt from the ticket's state. Follow-ups continue the
 conversation; "Yeni sohbet" (`--new`) starts over. Models come from `[chat] models` (the first is the default; `sonnet`, `opus`, `fable`, `haiku` without one), each
 reply stops after `[chat] timeout` (30 min) or with "Durdur" (`chat-stop`). It is read-only: editing tools and
 branch-moving git commands are denied, files a turn changed in the worktree are stashed, and in the main checkout it gets
 no Bash.
 
-### Sohbet (free chat)
+### Chat (free chat)
 
-The panel's Sohbet page (`talk …` on the command line) is a conversation with Claude about a project, not tied to a
+The panel's Chat page (`talk …` on the command line) is a conversation with Claude about a project, not tied to a
 ticket: each message is one headless turn that resumes the chat's session, like typing into a Claude Code session.
 A chat is fixed to one mode when it starts:
 
@@ -681,8 +681,8 @@ A chat is fixed to one mode when it starts:
   runs commands and commits there. Branch-moving git commands are denied and the pre-push hook refuses a push.
 
 Unlike the stages, a chat runs with MCP on, so the Claude login's claude.ai connectors (YouTrack, …) and the
-repository's MCP servers are there: "bana atanmış açık issue'ları listele" works in a project whose login has YouTrack.
-"Ticket'a çevir" puts the chat's title and turns in the composer; "Sil" removes the chat, and for a write chat its
+repository's MCP servers are there: "list the open issues assigned to me" works in a project whose login has YouTrack.
+"Make a ticket" puts the chat's title and turns in the composer; "Sil" removes the chat, and for a write chat its
 worktree and branch (asking again when the branch still holds commits or changes). Chats share `[chat]`'s models,
 timeout and the four live-reply slots with ticket chats.
 
@@ -721,13 +721,13 @@ ticket marks its items read. A new row is a macOS notification (sent by the wrap
 most one per `[notifications] min_interval` (30 s), the rest summed up; `[notifications] enabled` and `events` choose
 what is sent, `language` (`en` or `tr`; the system locale's by default) the language notifications and the weekly report are
 written in. `digest_every` (off by default) splits them in two tiers: the `urgent` kinds (question, approval, failed,
-lost, error, quota, protected) still notify at once, the rest are collected and shown as one "Özet · N öğe" notification
+lost, error, quota, protected) still notify at once, the rest are collected and shown as one "Digest · N items" notification
 naming the first three, once that long has passed since the first (at most 50 kept, the rest counted).
 
 The weekly report (`ziggy/weekly.py`) covers the seven days before a Monday: tickets done, PRs merged and runs failed,
 cost and sessions, the delivery numbers, what waits on you and what the project memory has to decide. The panel's
 minute tick writes it on Monday from 09:00 (or the first tick after) to `~/.local/state/ziggy/reports/<YYYY>-W<ww>.md`,
-once, with a notification of kind `report`; "İstatistik" shows the latest under "Haftalık rapor" (this week so far
+once, with a notification of kind `report`; "Stats" shows the latest under "Weekly report" (this week so far
 before the first one); `ziggy report` prints it up to yesterday (`--save` writes it).
 
 ### Worktree lifecycle
@@ -743,20 +743,20 @@ kept with a card saying why.
 
 ### Sessions on this machine
 
-`sessions` and "Oturumlar" list the other Claude Code sessions on this machine, read-only: live ones from
+`sessions` and "Sessions" list the other Claude Code sessions on this machine, read-only: live ones from
 `~/.claude` and every target's `CLAUDE_CONFIG_DIR`, and those that ended in the last 3 days, with where they run, the
-last prompt and a resume command; "Döküm" opens a transcript. The pipeline's own sessions are left out, and so are
+last prompt and a resume command; "Transcript" opens a transcript. The pipeline's own sessions are left out, and so are
 helper sessions whose working directory name starts with a prefix in `[sessions] hide_cwd_prefixes` (only counted).
 
 ### Cost and stats
 
-Every session records its cost, turns and tokens in its `run.json`; "İstatistik" adds them up (retro sessions as stage
+Every session records its cost, turns and tokens in its `run.json`; "Stats" adds them up (retro sessions as stage
 `retro`, lead sessions as `lead`, onboarding sessions as `onboard`, roadmap drafts as `roadmap`). A target's
 `budget_usd` caps each session with `claude --max-budget-usd`. Two caps are checked before every stage starts
 (`ziggy/budget.py`, costs as the sessions report them): `ticket_budget_usd`, all of one ticket's sessions — over it
 the run fails between stages with the numbers, and `ziggy run <id> --now` goes on; `daily_budget_usd`, the target's
-sessions that started today — over it a ticket waits as `budget` ("Günlük bütçe doldu" on the board, "Şimdi
-başlat" goes on now) and the panel's tick starts it the next day. "Teslim" (and `ziggy stats`) counts the last 30 days'
+sessions that started today — over it a ticket waits as `budget` ("Daily budget used" on the board, "Start
+now" goes on now) and the panel's tick starts it the next day. "Delivery" (and `ziggy stats`) counts the last 30 days'
 merged PRs per project and overall: the share merged without a change round after the PR opened (no review-page or
 GitHub feedback round), change rounds per PR, and the sessions' cost per merged PR, labelled "kota" for a Claude
 subscription login (its sessions report rate limits): no dollars are paid there, the figure is the quota used at API
@@ -892,13 +892,13 @@ point `[slack]` at both tokens.
 | `ziggy/stack.py` | dependencies (`after`), split, stacked slices, restack |
 | `ziggy/quota.py` | the usage-limit ledger per Claude login, holding and resuming tickets at a limit |
 | `ziggy/host.py`, `stalls.py` | the machine's memory and the host hold; tool calls that take long, where a stage's time went |
-| `ziggy/deferred.py` | deferred findings as entries, "Ticket'a çevir" |
+| `ziggy/deferred.py` | deferred findings as entries, "Make a ticket" |
 | `ziggy/chat.py` | ticket chat |
 | `ziggy/attention.py` | what needs you, the inbox ledger |
 | `ziggy/notify.py` | macOS notifications |
 | `ziggy/retro.py`, `memory.py` | retro sessions; project memory (files, candidates, recall, usage) |
 | `ziggy/roadmap.py` | the roadmap: roadmap.md or BMad's epics, automatic progress, `yol` changes, the draft session |
-| `ziggy/lead.py` | the morning lead: signals, proposals, the daily schedule, Bugün's "dün biten" |
+| `ziggy/lead.py` | the morning lead: signals, proposals, the daily schedule, Today's "finished yesterday" |
 | `ziggy/sessions.py` | other Claude Code sessions on this machine, read-only |
 | `ziggy/bmad.py` | BMad Method status of a target |
 | `ziggy/project.py` | the project page's state and `route` |

@@ -9,7 +9,7 @@ your repository. It asks when it needs you, stops at an approval gate when a pla
 itself, and ends with a branch of local commits you review and publish as a draft PR. You approve and merge; Ziggy
 never does.
 
-![The Komuta board: what waits on you, what is ready for review, what is on its way](docs/images/home.png)
+![The Command board: what waits on you, what is ready for review, what is on its way](docs/images/home.png)
 
 ## Why
 
@@ -20,7 +20,7 @@ the agent to one stage at a time and puts a deterministic engine around it:
   `pipelines/*.toml` says where that goes. Visit caps stop loops; a missing result is a failure, never a pass.
 - **Questions and an approval gate.** An agent that needs a decision asks a question round and waits. A plan rated
   risky or large stops for you to approve, change, or split into stacked slices (one draft PR each).
-- **Proof, not claims.** After an implement stage says READY, Ziggy runs your checks itself under `sandbox-exec`; a
+- **Proof, not claims.** After an implement stage says READY, Ziggy runs your checks itself under an OS sandbox; a
   failure goes back to the implementer, a broken environment stops the ticket and says what to fix.
 - **Sandboxed by default.** No network, no push, no package installs, no MCP, no reading your home folders; writes only
   in the worktree. Draft PRs only.
@@ -50,8 +50,8 @@ tickets you would hand to a colleague, sized for one person running a few reposi
 |---|---|
 | ![A question round on a ticket page](docs/images/ticket.png) | ![The review page with the branch's diff](docs/images/review.png) |
 | A ticket asking a question round, with options and a recommendation | Reviewing the branch before the draft PR |
-| ![Sohbet: a free chat about a project](docs/images/sohbet.png) | ![Projects](docs/images/projects.png) |
-| Sohbet: talk to Claude about a project, outside any ticket | Projects, their run slots and cost |
+| ![Chat: a free chat about a project](docs/images/chat.png) | ![Projects](docs/images/projects.png) |
+| Chat: talk to Claude about a project, outside any ticket | Projects, their run slots and cost |
 
 The panel speaks English or Turkish (its author's language): it follows your browser and remembers the "EN · TR"
 switch in its sidebar. The CLI, the code, the prompts and the docs are in English, and agents answer in the language
@@ -67,7 +67,7 @@ you pick per ticket.
   the checks after fixing an environment.
 - **GitHub loop**: draft PRs, PR comments and failing CI brought back as a new round, merged PRs archived and their
   worktrees cleaned.
-- **Sohbet**: free chats about a project, read-only or in a worktree of their own, with your Claude login's connectors
+- **Chat**: free chats about a project, read-only or in a worktree of their own, with your Claude login's connectors
   (e.g. an issue tracker) available read-only.
 - **MCP server** (`ziggy mcp`): drive Ziggy from any Claude Code or Claude Desktop session ("make this a ticket").
 - **Guided onboarding** of a repository: detects how to install and test it (Python, Node, Go, Rust, Swift/Xcode),
@@ -83,30 +83,31 @@ flowchart LR
     fronts --> engine["Engine<br/>pipelines/*.toml"]
     engine -- "one stage" --> agent["claude -p<br/>sandboxed, in a git worktree"]
     agent -- "result.json" --> engine
-    engine --> checks["Your checks<br/>under sandbox-exec"]
+    engine --> checks["Your checks<br/>under sandbox-exec / bubblewrap"]
     engine --> pr["Draft PR<br/>(you merge)"]
 ```
 
 [docs/architecture.md](docs/architecture.md) draws the whole system: a stage end to end, ticket states, routing, the
-safety layers, Sohbet and MCP, and where state lives.
+safety layers, Chat and MCP, and where state lives.
 
 ## Quick start
 
-Requirements: **macOS** (the sandboxes and launchd), **Python 3.12+** (standard library only), **Claude Code** logged
-in, **git**, and **gh** logged in to the account that opens PRs. Optional: `codex` for a second review, `uv` for the
-tests.
+Requirements: **macOS** or **Linux** (with `bwrap`, bubblewrap), **Python 3.12+** (standard library only), **Claude
+Code** logged in, **git**, and **gh** logged in to the account that opens PRs. Optional: `codex` for a second review,
+`uv` for the tests. On Linux, `ui --install` (launchd) and desktop notifications are not available: run `ziggy ui` under
+your own service manager.
 
 ```bash
 pipx install git+https://github.com/ilkeryasin8/ziggy-agent.git
 ziggy doctor                                # what this machine still needs, each with the fix
 ziggy target add ~/src/your-repo --verify   # look at the repo, try its install and tests, write its config
-ziggy ui --install                          # the panel at http://127.0.0.1:8787, kept running by launchd
+ziggy ui --install                          # the panel at http://127.0.0.1:8787, kept running by launchd (macOS)
 ziggy new "feat: add a dark mode toggle" --run
 ```
 
 From a clone, `bin/ziggy` runs the same commands without installing anything.
 
-Or open the panel and use "Mevcut repoyu ekle" (add an existing repository) and the command bar.
+Or open the panel and use "Add an existing repo" on Projects, then the command bar.
 
 Ziggy's own state lives in `~/.local/state/ziggy/` and its config in `~/.config/ziggy/config.toml`
 ([config.example.toml](config.example.toml) documents every key). Nothing is committed to your repository except the
@@ -137,7 +138,7 @@ target.
 - Sessions run in Claude Code's sandbox: writes only in the ticket's worktree, no network for the commands the agent
   runs (Claude Code itself still reaches its API), no push, no MCP servers, no hooks, your global settings not loaded;
   credential stores and `.env` files are denied to them, and secret-looking environment variables are dropped.
-- Your checks run under `sandbox-exec` with no network but localhost and no access to `~/.ssh`, `~/.aws` and the like.
+- Your checks run under `sandbox-exec` (macOS) or bubblewrap (Linux) with no network but localhost and no access to `~/.ssh`, `~/.aws` and the like.
 - Before anything leaves the machine, a guard stops branches touching CI workflows, agent instruction files, editor or
   devcontainer config, package install scripts, or carrying secrets or invisible Unicode, until you approve them; PR
   text is cleaned of images that could exfiltrate on render.

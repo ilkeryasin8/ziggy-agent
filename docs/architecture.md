@@ -153,14 +153,14 @@ flowchart TB
     L1 --> L2 --> L3
 ```
 
-## Sohbet and the MCP server
+## Chat and the MCP server
 
 Two ways to talk to Claude about a project outside a ticket run.
 
 ```mermaid
 sequenceDiagram
     actor You
-    participant P as Panel (Sohbet page)
+    participant P as Panel (Chat page)
     participant T as talk.py
     participant A as claude -p (chat turn)
     participant K as Claude login's connectors<br/>(e.g. the issue tracker)
@@ -170,7 +170,7 @@ sequenceDiagram
     T->>A: --resume the chat's session, MCP on<br/>read: no edits, no shell, no connector writes<br/>write: its own worktree on chat/ID, no push
     A->>K: look up issues, …
     A-->>P: streamed answer, steps, commits
-    You->>P: "Ticket'a çevir": a ticket draft from the chat
+    You->>P: "Make a ticket": a ticket draft from the chat
 ```
 
 ```mermaid
@@ -199,7 +199,7 @@ sequenceDiagram
       NN-<stage>/                    one dir per stage visit: prompt.md, claude.jsonl, run.json, checks.log
       chat/                          the ticket's chat turns
     worktrees/<ticket>/              the ticket's git worktree
-    talk/<id>/                       Sohbet chats (and a write chat's worktree)
+    talk/<id>/                       Chat sessions (and a write chat's worktree)
     memory/ (or a notes vault)       project memory, markdown
   attention.json, quota.json, …      the inbox ledger and machine-wide state
 ```

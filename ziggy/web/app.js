@@ -1692,7 +1692,7 @@ function projectList(box, s) {
       h("div", { class: "row pcard-foot" }, bmadPill(tk), controlledPill(tk),
         h("span", { class: "grow" }),
         tk.error ? "" : h("button", { class: "small", onclick: () => { focusComposer(); $("new-target").value = tk.name; composerHint(); } }, rows.length ? t("Ticket ver") : t("İlk ticket'ı ver")),
-        rows.length ? h("button", { class: "small ghost", onclick: () => { $("filter").value = tk.name; location.hash = "#tickets"; } }, `${rows.length} ticket`) : "",
+        rows.length ? h("button", { class: "small ghost", onclick: () => { $("filter").value = tk.name; location.hash = "#tickets"; } }, t(rows.length === 1 ? "{0} ticket@@one" : "{0} ticket@@many", rows.length)) : "",
         tk.error ? "" : h("a", { class: "button small ghost", href }, t("Aç →")),
         h("button", { class: "small ghost", title: t("Projeyi Ziggy'den çıkar (repo ve ticket geçmişi yerinde kalır)"), disabled: live.length > 0,
           onclick: (e) => removeTarget(e.currentTarget, tk.name) }, icon("x"), t("Çıkar"))));
