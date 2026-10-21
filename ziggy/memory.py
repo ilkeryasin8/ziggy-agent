@@ -85,6 +85,8 @@ KEY_ALIASES = {  # a field name as written (lowercase, ASCII-folded) -> its cano
 }
 REPLACED, FORGOTTEN, STALE = "yerini aldı", "unutuldu", "soluk"
 STALE_DAYS = 60
+PRUNE_UNUSED_DAYS = 2 * STALE_DAYS  # a decision, pitfall or episode unused this long is suggested for forgetting
+PRUNE_MIN_OUTCOMES = 3  # tickets an entry needs to have been used in before their outcomes judge it
 MAX_TITLE = 160
 MAX_FIELD = 1200
 MAX_CONTEXT_SHARE = 3  # context.md takes at most 1/3 of the budget
@@ -944,6 +946,52 @@ def record_usage(target: Target, ticket_id: str, ids: list[str]) -> list[str]:
     return counted
 
 
+def record_outcome(target: Target, ticket_id: str, outcome: str) -> list[str]:
+    """How a ticket ended up, on every entry it used: "clean" (its PR merged with no change asked) or "rework" (a person
+    or GitHub asked for changes; it sticks). Returns the entry ids it was recorded on."""
+    if outcome not in ("clean", "rework"):
+        raise ValueError(f"unknown outcome {outcome!r}")
+    with _lock(target):
+        data = usage(target)
+        hit = [i for i, u in data.items() if ticket_id in (u.get("tickets") or [])]
+        for i in hit:
+            seen = dict(data[i].get("outcomes") or {})
+            if outcome == "rework" or seen.get(ticket_id) != "rework":
+                seen[ticket_id] = outcome
+            data[i]["outcomes"] = dict(list(seen.items())[-20:])
+        if hit:
+            state.write_json(_usage_path(target), data)
+    return hit
+
+
+def prune_reason(e: dict, use: dict | None, today: date | None = None) -> str | None:
+    """Why an active entry looks worth forgetting, or None: most tickets that used it needed changes and none merged
+    clean (any kind, rules too), or a decision, pitfall or episode nobody used for PRUNE_UNUSED_DAYS. A suggestion only:
+    forgetting stays a person's call (forget)."""
+    if e["status"] != "active":
+        return None
+    outcomes = list(((use or {}).get("outcomes") or {}).values())
+    rework = outcomes.count("rework")
+    if len(outcomes) >= PRUNE_MIN_OUTCOMES and "clean" not in outcomes and rework * 3 >= len(outcomes) * 2:
+        return f"{rework} of the {len(outcomes)} tickets that used it needed changes; none merged clean"
+    if e["kind"] == "kural":
+        return None
+    last = _day((use or {}).get("last_used")) or _day(e.get("approved")) or _day(e.get("created"))
+    days = ((today or date.today()) - last).days if last else 0
+    return f"unused for {days} days" if days >= PRUNE_UNUSED_DAYS else None
+
+
+def prune_candidates(target: Target) -> list[dict]:
+    """The active entries prune_reason picks: {id, kind, title, why}, oldest id first."""
+    uses, today = usage(target), date.today()
+    out = []
+    for e in entries(target)[0]:
+        why = prune_reason(e, uses.get(e["id"]), today)
+        if why:
+            out.append({"id": e["id"], "kind": e["kind"], "title": e["title"], "why": why})
+    return sorted(out, key=lambda c: int(c["id"][2:]))
+
+
 def _day(stamp) -> date | None:
     return _local_day(stamp)
 
@@ -1205,7 +1253,8 @@ def view(target: Target) -> dict:
         out_entries[e["kind"]].append({
             **{k: e[k] for k in ("id", "kind", "title", "fields", "scope", "status", "replaced_by", "file", "line", "created", "approved", "notes")},
             "uses": int(use.get("count") or 0), "last_used": use.get("last_used"), "tickets": use.get("tickets") or [],
-            "stale": stale(e, use, today)})
+            "stale": stale(e, use, today), "prune": prune_reason(e, use, today),
+            "outcomes": use.get("outcomes") or {}})
     for k in KINDS:
         out_entries[k].sort(key=lambda e: (e["status"] != "active", -int(e["id"][2:])))
     return {"target": target.name, "dir": str(loc.dir), "source": loc.source, "vault_dir": loc.vault_dir, "hint": loc.hint,

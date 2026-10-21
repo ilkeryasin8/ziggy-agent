@@ -1,0 +1,15 @@
+title = "Make slugify transliterate accents and trim cleanly when truncating"
+type = "fix"
+body = """
+`slugify` mangles any non-ASCII input. "Creme Brulee" with accents becomes `cr-me-br-l-e`, and German "Strasse" written with an eszett loses letters entirely. We want readable ASCII slugs.
+
+Where: `text/slug.py`.
+
+Expected:
+- Accented Latin letters are reduced to their base letter (e, u, c, g, i, ...). The eszett becomes `ss`; the dotless Turkish i becomes `i`; a capital I with dot above becomes `i`.
+- Characters with no Latin equivalent (e.g. CJK) are dropped like other punctuation.
+- Runs of separators collapse to a single hyphen; no leading or trailing hyphens.
+- `max_length` must never leave a trailing hyphen on the truncated slug.
+- Plain ASCII behaviour stays exactly as it is today.
+"""
+check = "python3 -m unittest discover -s hidden_tests -t . -q"

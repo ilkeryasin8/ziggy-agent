@@ -14,7 +14,7 @@ import pytest
 from ziggy import checks, config
 from ziggy.dispatch import PID_FILE, STOP_FILE
 
-HAS_SANDBOX = os.access(checks.SANDBOX_EXEC, os.X_OK)
+HAS_SANDBOX = checks.available()
 
 
 @pytest.fixture
@@ -38,7 +38,7 @@ def any_ctx(tmp_path, monkeypatch):
 def ctx(any_ctx):
     """Checks that really execute need sandbox-exec (macOS); without it they must refuse (see below)."""
     if not HAS_SANDBOX:
-        pytest.skip("needs macOS sandbox-exec")
+        pytest.skip("needs an OS sandbox for checks (sandbox-exec or bwrap)")
     return any_ctx
 
 
@@ -71,6 +71,28 @@ def test_a_nested_sandbox_refusal_is_the_environment_not_the_code(ctx):
     assert "OTHER_SWIFT_FLAGS=$(inherited) -disable-sandbox" in out["environment"]["why"]
     [plain] = ctx["run"](("tests", "echo 'assertion failed'; exit 1", 60))
     assert "environment" not in plain
+
+
+def test_a_check_cannot_read_credentials_or_inherit_secret_variables(ctx, tmp_path, monkeypatch):
+    from ziggy import dispatch
+
+    home = tmp_path / "home"
+    (home / ".aws").mkdir(parents=True)
+    (home / ".aws" / "credentials").write_text("canary-aws\n")
+    (home / ".netrc").write_text("canary-netrc\n")
+    (home / "notes.txt").write_text("plain\n")
+    monkeypatch.setattr(Path, "home", lambda: home)
+    env = dispatch.scrub({**ctx["env"], "GITHUB_TOKEN": "canary-gh", "MY_API_KEY": "canary-key", "LANG": "C"}, keep={"LANG"})
+    outs = {}
+    for name, cmd in (("aws", f"cat {home}/.aws/credentials"), ("netrc", f"cat {home}/.netrc"), ("plain", f"cat {home}/notes.txt")):
+        [outs[name]] = checks.run(ctx["target"], "t1", ctx["wt"], [{"name": name, "run": cmd, "timeout_s": 60}], ctx["log"], env)
+    [outs["var"]] = checks.run(ctx["target"], "t1", ctx["wt"],
+                               [{"name": "var", "run": 'echo "[${GITHUB_TOKEN:-none}${MY_API_KEY:-}]"', "timeout_s": 60}],
+                               ctx["log"], env)
+    assert outs["aws"]["status"] == "fail" and "canary" not in outs["aws"]["detail"]
+    assert outs["netrc"]["status"] == "fail" and "canary" not in outs["netrc"]["detail"]
+    assert outs["plain"]["status"] == "pass" and outs["plain"]["detail"] == "plain"
+    assert outs["var"]["detail"] == "[none]"  # scrubbed before the check ever ran
 
 
 def test_pipefail_fails_a_pipeline(ctx):
@@ -172,10 +194,11 @@ def test_a_check_that_modifies_tracked_files_fails_and_they_stay(git_ctx):
 
 def test_missing_sandbox_exec_never_runs_unsandboxed(any_ctx, monkeypatch):
     monkeypatch.setattr(checks, "SANDBOX_EXEC", "/nonexistent/sandbox-exec")
+    monkeypatch.setattr(checks, "BWRAP", "/nonexistent/bwrap")
     [out] = any_ctx["run"](("tests", "touch ran", 60))
     assert not (any_ctx["wt"] / "ran").exists()
     assert out["status"] == "fail" and out["exit_code"] is None
-    assert out["detail"] == "could not start: sandbox-exec not available"
+    assert out["detail"] == "could not start: no sandbox available (sandbox-exec on macOS, bwrap on Linux)"
 
 
 def test_missing_worktree_could_not_start(ctx):
@@ -189,11 +212,16 @@ def test_network_is_denied_except_loopback(ctx):
     server.bind(("127.0.0.1", 0))
     server.listen()
     port = server.getsockname()[1]
+    host_loopback = checks.backend() == "sandbox-exec"  # bwrap: a network namespace of its own, its own loopback
     try:
         [out] = ctx["run"](("loopback", f"exec 3<>/dev/tcp/127.0.0.1/{port}; echo connected", 60))
-        assert out["status"] == "pass" and out["detail"] == "connected"
+        assert (out["status"] == "pass" and out["detail"] == "connected") if host_loopback else out["status"] == "fail"
     finally:
         server.close()
+    inside = ("python3 -c \"import socket; s = socket.socket(); s.bind(('127.0.0.1', 0)); s.listen(); "
+              "c = socket.create_connection(s.getsockname()); print('connected')\"")
+    [out] = ctx["run"](("own-loopback", inside, 60))
+    assert out["status"] == "pass" and out["detail"] == "connected"
     [out] = ctx["run"](("egress", "exec 3<>/dev/tcp/1.1.1.1/80; echo connected", 60))
     assert out["status"] == "fail" and "connected" not in out["detail"]
 
@@ -202,11 +230,11 @@ def test_writes_outside_the_allowed_roots_are_denied(ctx):
     outside = Path.home() / f".ziggy-check-{uuid.uuid4().hex}"
     state_file = ctx["target"].state_dir / "venv-marker"
     try:
-        [out] = ctx["run"](("writes", f"touch in-worktree '{state_file}' \"$TMPDIR/tmp-marker\" /tmp/x-$$; rm /tmp/x-$$", 60))
+        [out] = ctx["run"](("writes", f"touch in-worktree '{state_file}' \"${{TMPDIR:-/tmp}}/tmp-marker\" /tmp/x-$$; rm /tmp/x-$$", 60))
         assert out["status"] == "pass", out["detail"]
         assert (ctx["wt"] / "in-worktree").exists() and state_file.exists()
         [out] = ctx["run"](("outside", f"touch '{outside}'", 60))
-        assert out["status"] == "fail" and "Operation not permitted" in out["detail"]
+        assert out["status"] == "fail" and ("Operation not permitted" in out["detail"] or "Read-only file system" in out["detail"])
         assert not outside.exists()
     finally:
         outside.unlink(missing_ok=True)
@@ -226,7 +254,10 @@ def test_profile_adds_a_preset_only_when_asked(tmp_path, monkeypatch):
     swiftpm = os.path.realpath(tmp_path / "home" / "Library" / "Caches" / "org.swift.swiftpm")
     rules = [f'(allow file-write* (subpath "{swiftpm}"))', '(allow network-outbound (remote unix-socket (subpath "/private/var/tmp")))']
     assert all(r not in plain for r in rules) and "swiftpm" not in plain and "/private/var/tmp" not in plain
-    assert xcode == plain.rstrip("\n") + "\n" + "\n".join(rules) + "\n"
+    # The preset's rules go right before the credential read denies, which stay last (the last matching rule wins).
+    deny = checks._read_denies()[0]
+    assert plain.rstrip("\n").endswith(deny) and xcode.rstrip("\n").endswith("\n".join(rules) + "\n" + deny)
+    assert xcode.replace("\n".join(rules) + "\n", "") == plain
     with pytest.raises(ValueError, match="unknown check_sandbox preset 'docker'"):
         checks.profile(tmp_path / "wt", tmp_path / "state", ("docker",))
 
@@ -255,3 +286,31 @@ def test_check_sandbox_is_validated_in_the_config(env):
 def test_short_duration():
     assert [checks.short_duration(s) for s in (0, 12.4, 59.6, 180, 3900, 2 * 86400 + 4 * 3600)] == \
         ["0s", "12s", "60s", "3m", "1h 05m", "2d 4h"]
+
+
+def test_the_linux_sandbox_binds_only_the_worktree_and_state_writable_and_hides_credentials(tmp_path, monkeypatch):
+    home = tmp_path / "home"
+    (home / ".ssh").mkdir(parents=True)
+    (home / ".netrc").write_text("canary\n")
+    monkeypatch.setattr(Path, "home", lambda: home)
+    wt, state_dir = tmp_path / "wt", tmp_path / "state"
+    wt.mkdir()
+    deny = tmp_path / "deny"
+    deny.write_text("")
+    deny.chmod(0)
+    argv = checks.bwrap_argv(wt, state_dir, "pytest -q", deny)
+    pairs = list(zip(argv, argv[1:]))
+    assert argv[1:4] == ["--ro-bind", "/", "/"] and ("--unshare-net", "--die-with-parent") in pairs
+    binds = [argv[i + 1] for i, a in enumerate(argv) if a == "--bind"]
+    assert binds == ["/tmp", str(wt.resolve()), str(state_dir.resolve())]
+    assert ("--tmpfs", os.path.realpath(home / ".ssh")) in pairs
+    i = argv.index(os.path.realpath(home / ".netrc"))
+    assert argv[i - 2:i] == ["--ro-bind", str(deny)] and not (state_dir / ".sandbox-deny").exists()
+    assert argv[-3:] == ["bash", "-c", "set -eo pipefail\npytest -q"] and ("--chdir", str(wt.resolve())) in pairs
+
+
+def test_the_scrub_drops_secrets_but_keeps_git_identity():
+    from ziggy import dispatch
+    env = {"GIT_AUTHOR_NAME": "Ada", "GIT_AUTHOR_EMAIL": "ada@example.test", "GIT_COMMITTER_NAME": "Ada",
+           "NPM_AUTH_TOKEN": "x", "OAUTH_CLIENT": "x", "BASIC_AUTH": "x", "MY_SESSION_ID": "x", "PATH": "/bin"}
+    assert set(dispatch.scrub(env, keep=set())) == {"GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_COMMITTER_NAME", "PATH"}

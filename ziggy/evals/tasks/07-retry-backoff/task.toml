@@ -1,0 +1,17 @@
+title = "Add exponential backoff to retry"
+type = "feat"
+body = """
+`retry` in `retry/core.py` re-calls the function immediately, which hammers failing services. Add exponential backoff.
+
+New keyword parameters (all optional, after `attempts`):
+- `base_delay=0.1` seconds, `factor=2.0`, `max_delay=None`
+- `retry_on=(Exception,)`: only these exception types trigger a retry; anything else propagates immediately without sleeping.
+- `sleep=time.sleep`: injectable so callers and tests do not really wait.
+
+Behaviour:
+- The delay before retry number n (n = 0 for the first retry) is `base_delay * factor ** n`, capped at `max_delay` when given.
+- Never sleep after the final failed attempt; re-raise that last exception.
+- `attempts` below 1 raises `ValueError`.
+- A function that succeeds returns its value as before; existing positional use `retry(fn, 3)` keeps working.
+"""
+check = "python3 -m unittest discover -s hidden_tests -t . -q"

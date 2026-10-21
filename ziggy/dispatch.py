@@ -15,11 +15,11 @@ import uuid
 from pathlib import Path
 
 from . import quota, state, stalls
-from .config import PIPELINE_ROOT, Target
+from .config import PACKAGE, Target
 from .worktree import target_env
 
-SETTINGS = PIPELINE_ROOT / "claude-settings.json"
-GITHOOKS = PIPELINE_ROOT / "githooks"
+SETTINGS = PACKAGE / "claude-settings.json"
+GITHOOKS = PACKAGE / "githooks"
 RESULT_FIELDS = ("total_cost_usd", "session_id", "is_error", "terminal_reason", "api_error_status", "modelUsage")
 OUTPUT = "claude.jsonl"  # the session's event stream, one JSON object per line
 PID_FILE = "pid"  # present while the stage's process (claude, then its checks) is alive
@@ -43,16 +43,17 @@ def claude_bin() -> str:
 RESUME_MARK = "The stage's instruction was:\n"
 
 
-def resume_prompt(original: str, nudge: dict | None = None) -> str:
+def resume_prompt(original: str, nudge: dict | None = None, reminder: str = "") -> str:
+    """`reminder`: PLAN's goal and open tasks (plan.reminder), so a long step resumes on course."""
     return ("Your previous process for this step stopped before it wrote its result file (it was killed, crashed "
             "or timed out). Continue the same task from where you left off: check what is already done in the "
             "working tree and the plan, finish the rest, then write the result file.\n\n"
-            + (nudge_section(nudge) + "\n" if nudge else "") + RESUME_MARK + original)
+            + (nudge_section(nudge) + "\n" if nudge else "") + (reminder + "\n" if reminder else "") + RESUME_MARK + original)
 
 
-def nudge_resume_prompt(nudge: dict, original: str) -> str:
+def nudge_resume_prompt(nudge: dict, original: str, reminder: str = "") -> str:
     """The prompt that resumes an interrupted session: why it was stopped (a person's message verbatim, or
-    the watchdog's reason), then the stage's instruction again."""
+    the watchdog's reason), PLAN's goal and open tasks (`reminder`), then the stage's instruction again."""
     kind, text = nudge.get("kind"), nudge.get("text") or ""
     if kind == "user":
         head = (f"{nudge.get('by') or 'The user'} interrupted you to steer this step. Their message, verbatim:\n\n"
@@ -65,7 +66,8 @@ def nudge_resume_prompt(nudge: dict, original: str) -> str:
     else:
         head = f"Ziggy stopped you because {text}: finish the essential part first and leave the rest as open items. "
     return (head + "Your last turn was interrupted, so a tool call may not have finished: check what is already done, "
-            "then continue the same task and write the result file as before.\n\n" + RESUME_MARK + original)
+            "then continue the same task and write the result file as before.\n\n"
+            + (reminder + "\n" if reminder else "") + RESUME_MARK + original)
 
 
 def nudge_section(nudge: dict) -> str:
@@ -85,6 +87,37 @@ def fmt_duration(seconds: float) -> str:
 
 
 _HELP: dict[str, str] = {}
+# The oldest Claude Code whose sandbox Ziggy trusts: earlier releases had network-allowlist bypasses (an empty
+# allowedDomains not enforced; a SOCKS5 null-byte bypass up to 2.1.89, per public write-ups). Raise it when a fix
+# lands; scripts/sandbox-smoke.sh re-checks the sandbox itself.
+MIN_CLAUDE = (2, 1, 90)
+_VERSION: dict[str, tuple[int, ...] | None] = {}
+
+
+class ClaudeTooOld(RuntimeError):
+    pass
+
+
+def claude_version() -> tuple[int, ...] | None:
+    """`claude --version` as (major, minor, patch), asked once per binary per process; None when it says no version."""
+    binary = claude_bin()
+    if binary not in _VERSION:
+        try:
+            out = subprocess.run([binary, "--version"], capture_output=True, text=True, timeout=30).stdout
+        except (OSError, subprocess.TimeoutExpired):
+            out = ""
+        found = re.search(r"(\d+)\.(\d+)\.(\d+)", out)
+        _VERSION[binary] = tuple(int(x) for x in found.groups()) if found else None
+    return _VERSION[binary]
+
+
+def require_claude() -> None:
+    """Refuse to start a session on a Claude Code older than MIN_CLAUDE. A binary that reports no version (a stand-in
+    set through ZIGGY_CLAUDE) is let through."""
+    found = claude_version()
+    if found is not None and found < MIN_CLAUDE:
+        raise ClaudeTooOld(f"Claude Code {'.'.join(map(str, found))} is older than {'.'.join(map(str, MIN_CLAUDE))}, the oldest "
+                           "whose sandbox Ziggy trusts; update it (`claude update`) before running stages or chats")
 
 
 def supports(flag: str) -> bool:
@@ -99,12 +132,15 @@ def supports(flag: str) -> bool:
 
 def command(model: str, session_id: str, prompt: str, inbox: Path, resume: bool = False, budget_usd: float | None = None,
             tools_deny: tuple[str, ...] = (), json_schema: dict | None = None, effort: str | None = None,
-            mcp: bool = False) -> list[str]:
+            mcp: bool = False, tools_allow: tuple[str, ...] | None = None) -> list[str]:
+    # `tools_allow` (Sohbet): --permission-mode dontAsk with exactly these tools allowed; anything else that would need a
+    # permission is refused, an allowlist where the deny list cannot know every connector's tool names.
     # --setting-sources project: the target's own settings apply, the user's global ones
     # (CLAUDE.md, skills, hooks) do not. --strict-mcp-config without --mcp-config: no MCP, unless `mcp`
     # (Sohbet, talk.py): then the login's claude.ai connectors and the repository's MCP servers load.
     # --add-dir inbox: the agent reads the ticket and writes the plan and its result there; the
     # sandbox lets Bash write there too, so it holds nothing the wrapper trusts without rewriting.
+    require_claude()
     deny = list(dict.fromkeys([*tools_deny, *ALWAYS_DENIED]))
     return [
         claude_bin(), "-p", prompt,
@@ -112,7 +148,8 @@ def command(model: str, session_id: str, prompt: str, inbox: Path, resume: bool 
         "--settings", str(SETTINGS),
         "--setting-sources", "project",
         *([] if mcp else ["--strict-mcp-config"]),
-        "--permission-mode", "auto",
+        "--permission-mode", "auto" if tools_allow is None else "dontAsk",
+        *(["--allowedTools", *tools_allow] if tools_allow else []),
         "--add-dir", str(inbox),
         "--disallowedTools", *deny,
         # A fresh session gets the id the wrapper chose; a resumed one continues that id.
@@ -125,8 +162,27 @@ def command(model: str, session_id: str, prompt: str, inbox: Path, resume: bool 
     ]
 
 
-def environment(target: Target, ticket_id: str, wt: Path, extra: dict[str, str] | None = None) -> dict[str, str]:
+# Variables that look like credentials never reach an agent's session, a check or the Codex review: an injected
+# ticket could otherwise print them into a commit, a PR body or a test log. The target's own [env] entries stay (you
+# put them there for the runs); Claude's own login (`CLAUDE_AUTH`) stays for claude sessions only, and SSH_AUTH_SOCK
+# for commit signing. `prepare`/`teardown` run outside the sandbox with the full environment (private registries).
+SECRET_NAME = re.compile(r"TOKEN|SECRET|PASSWORD|PASSWD|PASSPHRASE|API_?KEY|ACCESS_?KEY|PRIVATE_?KEY|CREDENTIAL|COOKIE|"
+                         r"SESSION|AUTH(?!OR)|(^|_)PAT($|_)|^AWS_|^AZURE_|^GOOGLE_APPLICATION|^GH_|^GITHUB_|^OP_|^VAULT_|^DOCKER_",
+                         re.I)
+KEEP_ENV = {"SSH_AUTH_SOCK"}
+CLAUDE_AUTH = {"ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"}
+
+
+def scrub(env: dict[str, str], keep: set[str] | frozenset[str] = frozenset()) -> dict[str, str]:
+    """`env` without the variables whose names look like credentials, except `keep` and KEEP_ENV."""
+    return {k: v for k, v in env.items() if k in keep or k in KEEP_ENV or not SECRET_NAME.search(k)}
+
+
+def environment(target: Target, ticket_id: str, wt: Path, extra: dict[str, str] | None = None,
+                claude: bool = True) -> dict[str, str]:
+    """The environment of a session (or, `claude=False`, of an engine check): the target's, scrubbed of credentials."""
     env, _ = target_env(target, ticket_id, wt)
+    env = scrub(env, keep=set(target.env) | (CLAUDE_AUTH if claude else set()))
     env.update(extra or {})
     env["ZIGGY_RUN"] = "1"
     # The pre-push hook reaches git through the environment, so the target's .git/config is
@@ -176,6 +232,76 @@ def parse_output(text: str) -> dict:
     if structured is not None:
         parsed["structured_output"] = structured
     return parsed
+
+
+CODEX_OUTPUT = "codex.jsonl"  # a Codex stage's event stream (codex exec --json)
+CODEX_AUTH = {"OPENAI_API_KEY", "CODEX_API_KEY"}
+
+
+def codex_bin() -> str:
+    return os.environ.get("ZIGGY_CODEX", "codex")
+
+
+def codex_command(wt: Path, inbox: Path, stage_dir: Path, model: str | None) -> list[str]:
+    """`codex exec` for one stage: its own sandbox with writes in the worktree and the inbox only (no network), your
+    Codex config and rules left out, the prompt on stdin, the last message to a file."""
+    return [codex_bin(), "exec", "--json", "--ignore-user-config", "--skip-git-repo-check", "--sandbox", "workspace-write",
+            "--cd", str(wt), "--add-dir", str(inbox), "--output-last-message", str(stage_dir / "codex-last.txt"),
+            *(["--model", model] if model else []), "-"]
+
+
+def parse_codex(text: str) -> dict:
+    """Thread id, token usage and the last agent message from `codex exec --json`'s events."""
+    events = read_events(text)
+    out: dict = {"total_cost_usd": None}
+    usage = {"input_tokens": 0, "cached_input_tokens": 0, "output_tokens": 0}
+    messages = []
+    for e in events:
+        if e.get("type") == "thread.started":
+            out["session_id"] = e.get("thread_id")
+        elif e.get("type") == "turn.completed":
+            for k in usage:
+                usage[k] += int((e.get("usage") or {}).get(k) or 0)
+        elif e.get("type") == "item.completed" and (e.get("item") or {}).get("type") == "agent_message":
+            messages.append((e["item"].get("text") or ""))
+        elif e.get("type") in ("turn.failed", "error"):
+            out["is_error"] = True
+    out["codex_usage"] = usage
+    if messages:
+        out["final_message"] = messages[-1][-4000:]
+    return out
+
+
+def run_codex(target: Target, ticket_id: str, wt: Path, inbox: Path, stage_dir: Path, model: str | None, prompt: str, *,
+              record: dict, timeout: int | None = None, extra_env: dict[str, str] | None = None) -> dict:
+    """One stage run by Codex instead of Claude Code (the target's `codex_stages`): the same prompt and result file,
+    a fresh Codex session each time (no resume), the same stop, nudge and timeout handling. Codex reports tokens, not
+    cost."""
+    record.update({"agent": "codex", "model": model or "codex default", "session_id": None, "prompt": prompt,
+                   "worktree": str(wt), "started_at": state.now(), "dir": str(stage_dir)})
+    state.write_json(stage_dir / "run.json", record)
+    env = environment(target, ticket_id, wt, extra_env, claude=False)
+    env.update({k: os.environ[k] for k in CODEX_AUTH if os.environ.get(k)})
+    out_path, err_path, pid_path = stage_dir / CODEX_OUTPUT, stage_dir / "codex.err", stage_dir / PID_FILE
+    with out_path.open("w", encoding="utf-8") as out, err_path.open("w", encoding="utf-8") as err:
+        proc = subprocess.Popen(codex_command(wt, inbox, stage_dir, model), cwd=wt, env=env, stdin=subprocess.PIPE,
+                                stdout=out, stderr=err, start_new_session=True, text=True)
+        pid_path.write_text(f"{proc.pid}\n")
+        try:
+            proc.stdin.write(prompt)
+            proc.stdin.close()
+            _watch(proc, stage_dir, record, timeout or target.timeout, None)
+        finally:
+            pid_path.unlink(missing_ok=True)
+    if (stage_dir / STOP_FILE).exists():
+        record["stopped"] = True
+    record["finished_at"] = state.now()
+    record.update(parse_codex(out_path.read_text(encoding="utf-8")))
+    last = stage_dir / "codex-last.txt"
+    if last.is_file() and last.read_text(encoding="utf-8").strip():
+        record["final_message"] = last.read_text(encoding="utf-8")[-4000:]
+    state.write_json(stage_dir / "run.json", record)
+    return record
 
 
 def run(target: Target, ticket_id: str, wt: Path, inbox: Path, stage_dir: Path, model: str, prompt: str, *,

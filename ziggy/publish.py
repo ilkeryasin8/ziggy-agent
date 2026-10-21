@@ -18,7 +18,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from . import changes, roadmap, stack, state, worktree
+from . import changes, guard, issues, roadmap, stack, state, worktree
 from .config import Target
 from .project import PROJECT_DOC
 from .worktree import git
@@ -58,6 +58,31 @@ def gh_as(user: str, *args: str, cwd: Path) -> str:
 
 def _gh(target: Target, *args: str) -> str:
     return gh_as(target.gh_user, *args, cwd=target.path)
+
+
+def pending_findings(target: Target, ticket_id: str, title: str | None = None, body: str | None = None) -> list[dict]:
+    """What a publish of the ticket would stop on now (the panel asks before it starts the publish job). An adopted PR
+    is checked by the job itself, after it fetched the PR."""
+    ticket, st = state.load_ticket(target, ticket_id), state.load_state(target, ticket_id)
+    if ticket.get("pull") or not st.get("worktree"):
+        return []
+    text = guard.clean_text(_with_footer(target, body, ticket) if body is not None else pr_body(target, ticket, st))
+    found = guard.findings(Path(st["worktree"]), worktree.base_ref(target, ticket), ticket["branch"],
+                           guard.clean_text(title) if title is not None else _title(ticket), text)
+    return guard.unapproved(st, found)
+
+
+def _guard(target: Target, ticket_id: str, st: dict, wt: Path, base: str, head: str, title: str = "", body: str = "",
+           approve: bool = False, by: str | None = None) -> None:
+    """guard.py before a push: refuse while a finding is not approved; `approve` records the current ones."""
+    found = guard.unapproved(st, guard.findings(wt, base, head, title, body))
+    if not found:
+        return
+    if not approve:
+        raise PublishError(guard.message(found))
+    guard.approve(target, ticket_id, found, by or "panel")
+    fresh = state.load_state(target, ticket_id)  # publish saves its own copy of the state later: carry the record over
+    st.update(guard_approved=fresh["guard_approved"], guard_log=fresh["guard_log"])
 
 
 def _sections(text: str, heading: str) -> str:
@@ -114,10 +139,12 @@ def _last_review(target: Target, ticket_id: str) -> dict | None:
 
 
 def _footer(target: Target, ticket: dict) -> list[str]:
-    """What every PR body ends with, edited by the user or not: a slice's stack, the ticket's source and id."""
+    """What every PR body ends with, edited by the user or not: a slice's stack, the ticket's source, the issue it
+    closes and its id."""
     stacked = stack.pr_stack_section(target, ticket)
     parts = ([stacked] if stacked else []) + ([f"Ticket: {ticket['source_ref']}"] if ticket.get("source_ref") else [])
-    return parts + [f"`ziggy ticket {ticket['id']}`"]
+    closing = issues.closes(target, ticket)  # a ticket from one of the repository's issues closes it on merge
+    return parts + ([closing] if closing else []) + [f"`ziggy ticket {ticket['id']}`"]
 
 
 def _code_parts(target: Target, ticket: dict, st: dict) -> list[str]:
@@ -236,12 +263,15 @@ def _overrides(title, body) -> tuple[str | None, str | None]:
 
 
 def publish(target: Target, ticket_id: str, foreign_ok: bool = False, title: str | None = None,
-            body: str | None = None) -> str:
+            body: str | None = None, approve_findings: bool = False, by: str | None = None) -> str:
     """Push the ticket's branch and return the URL of its draft PR (an existing one is reused).
     `title`/`body` are the user's edited PR text (the body gets the footer appended); on an existing PR they
     replace its title/description, which is otherwise left alone (a project PR's body follows its doc).
-    An adopted PR (ticket["pull"]) gets the new commits on its own branch instead."""
+    An adopted PR (ticket["pull"]) gets the new commits on its own branch instead. Before any push guard.py looks
+    at the branch and the PR text: unapproved findings refuse it unless `approve_findings`."""
     title, body = _overrides(title, body)
+    title = guard.clean_text(title) if title is not None else None
+    body = guard.clean_text(body) if body is not None else None
     if not target.github_repo or not target.gh_user:
         raise PublishError(f"[targets.{target.name}] needs github_repo and gh_user to open pull requests")
     ticket = state.load_ticket(target, ticket_id)
@@ -251,7 +281,7 @@ def publish(target: Target, ticket_id: str, foreign_ok: bool = False, title: str
     if ticket.get("pull"):
         if title is not None or body is not None:
             raise PublishError("an adopted PR keeps its own title and description")
-        return _publish_pull(target, ticket, st, foreign_ok)
+        return _publish_pull(target, ticket, st, foreign_ok, approve_findings, by)
     branch, base = ticket["branch"], ticket["base_branch"]
     if branch in PROTECTED | {base}:
         raise PublishError(f"refusing to push {branch}: it is a protected or base branch")
@@ -263,7 +293,11 @@ def publish(target: Target, ticket_id: str, foreign_ok: bool = False, title: str
         raise PublishError(f"{branch} has no commits over {base_ref}")
     if _TRAILER.search(messages):
         raise PublishError(f"{branch} has commits with a Co-Authored-By trailer; reword them before publishing")
+    text = guard.clean_text(_with_footer(target, body, ticket) if body is not None else pr_body(target, ticket, st))
+    _guard(target, ticket_id, st, wt, base_ref, branch, title or _title(ticket), text, approve_findings, by)
     stack.publish_below(target, ticket)  # a stacked slice: its PR's base branch goes up first
+    if body is None:  # the stack footer names the PRs publish_below just opened
+        text = guard.clean_text(pr_body(target, ticket, state.load_state(target, ticket_id)))
 
     push = subprocess.run(
         ["git", "push", target.remote, f"refs/heads/{branch}:refs/heads/{branch}"],
@@ -275,7 +309,7 @@ def publish(target: Target, ticket_id: str, foreign_ok: bool = False, title: str
     existing = _gh(target, "pr", "list", "--repo", target.github_repo, "--head", branch, "--state", "open", "--json", "url", "--jq", ".[0].url")
     is_project = ticket["type"] == "project"
     with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False, encoding="utf-8") as fh:
-        fh.write(_with_footer(target, body, ticket) if body is not None else pr_body(target, ticket, st))
+        fh.write(text)
     try:
         if existing:
             url = existing
@@ -289,7 +323,7 @@ def publish(target: Target, ticket_id: str, foreign_ok: bool = False, title: str
         else:
             url = _gh(
                 target, "pr", "create", "--draft", "--repo", target.github_repo, "--base", base, "--head", branch,
-                "--title", title or _title(ticket)[:MAX_TITLE], "--body-file", fh.name,
+                "--title", title or guard.clean_text(_title(ticket))[:MAX_TITLE], "--body-file", fh.name,
             ).splitlines()[-1]
     finally:
         os.unlink(fh.name)
@@ -339,6 +373,8 @@ def push_rebased(target: Target, ticket: dict, st: dict) -> str:
     messages = git("log", "--format=%B%x00", f"{worktree.base_ref(target, ticket)}..{branch}", cwd=wt).stdout
     if _TRAILER.search(messages):
         raise PublishError(f"{branch} has commits with a Co-Authored-By trailer; reword them before publishing")
+    # A rebase moves lines, not findings: what was approved before stays approved; anything new asks.
+    _guard(target, ticket["id"], st, wt, worktree.base_ref(target, ticket), branch)
     push = subprocess.run(
         ["git", "push", f"--force-with-lease=refs/heads/{branch}:{st['published_head']}", target.remote,
          f"refs/heads/{branch}:refs/heads/{branch}"],
@@ -349,7 +385,8 @@ def push_rebased(target: Target, ticket: dict, st: dict) -> str:
     return git("rev-parse", branch, cwd=wt).stdout.strip()
 
 
-def _publish_pull(target: Target, ticket: dict, st: dict, foreign_ok: bool) -> str:
+def _publish_pull(target: Target, ticket: dict, st: dict, foreign_ok: bool, approve_findings: bool = False,
+                  by: str | None = None) -> str:
     """Push an adopted PR's fix commits to the PR's own branch: fast-forward only, never to a
     fork, and to someone else's PR only when the human said so (`foreign_ok`)."""
     pull = ticket["pull"]
@@ -368,6 +405,7 @@ def _publish_pull(target: Target, ticket: dict, st: dict, foreign_ok: bool) -> s
         raise PublishError(f"{ticket['branch']} has no commits over PR #{pull['number']}")
     if _TRAILER.search(messages):  # only the pipeline's own commits; the PR's are not ours to judge
         raise PublishError(f"{ticket['branch']} has commits with a Co-Authored-By trailer; reword them before publishing")
+    _guard(target, ticket["id"], st, wt, remote, "HEAD", approve=approve_findings, by=by)  # only what we add to it
     push = subprocess.run(
         ["git", "push", target.remote, f"refs/heads/{ticket['branch']}:refs/heads/{pull['head']}"],
         cwd=target.path, env=_clean_env(), capture_output=True, text=True, timeout=300,

@@ -1,10 +1,10 @@
-"""Contract tests for the headless-run Claude Code settings (claude-settings.json)."""
+"""Contract tests for the headless-run Claude Code settings (ziggy/claude-settings.json)."""
 import json
 from pathlib import Path
 
 import pytest
 
-SETTINGS = Path(__file__).resolve().parents[1] / "claude-settings.json"
+SETTINGS = Path(__file__).resolve().parents[1] / "ziggy" / "claude-settings.json"
 
 # The full deny list from plan section 6.1; every entry is required, not a subset.
 REQUIRED_DENY = [
@@ -31,9 +31,26 @@ REQUIRED_DENY = [
     "Bash(launchctl:*)",
     "Bash(osascript:*)",
     "Read(./.env*)",
+    "Read(**/.env)",
+    "Read(**/.env.*)",
     "Read(**/.npmrc)",
+    "Read(**/.pypirc)",
     "Read(~/.config/**)",
     "Read(~/.ssh/**)",
+    # Credentials of other tools on the machine: cloud, containers, signing, git, Codex, the keychain and browsers.
+    "Read(~/.aws/**)",
+    "Read(~/.azure/**)",
+    "Read(~/.kube/**)",
+    "Read(~/.docker/**)",
+    "Read(~/.gnupg/**)",
+    "Read(~/.netrc)",
+    "Read(~/.git-credentials)",
+    "Read(~/.codex/**)",
+    "Read(~/Library/Keychains/**)",
+    "Read(~/Library/Cookies/**)",
+    "Read(~/Library/Application Support/Google/Chrome/**)",
+    "Read(~/Library/Application Support/Firefox/**)",
+    "Read(~/Library/Safari/**)",
     "Read(~/.claude.json)",
     "Edit(./.claude/settings.json)",
     "Edit(./AGENTS.md)",
@@ -127,3 +144,21 @@ def test_commits_and_prs_carry_no_attribution(settings):
     # Empty strings switch off Claude Code's Co-Authored-By trailer and PR footer
     # (verified headless: without this the agent's commit gets the trailer).
     assert settings["attribution"] == {"commit": "", "pr": ""}
+
+
+def test_an_old_claude_code_is_refused(monkeypatch, tmp_path):
+    from ziggy import dispatch
+
+    old = tmp_path / "claude"
+    old.write_text("#!/bin/sh\necho '2.1.40 (Claude Code)'\n")
+    old.chmod(0o755)
+    monkeypatch.setenv("ZIGGY_CLAUDE", str(old))
+    monkeypatch.setattr(dispatch, "_VERSION", {})
+    with pytest.raises(dispatch.ClaudeTooOld, match="2.1.40 is older than 2.1.90"):
+        dispatch.command("sonnet", "s", "hi", tmp_path)
+    old.write_text("#!/bin/sh\necho '2.1.305 (Claude Code)'\n")
+    monkeypatch.setattr(dispatch, "_VERSION", {})
+    assert dispatch.command("sonnet", "s", "hi", tmp_path)[0] == str(old)
+    old.write_text("#!/bin/sh\necho 'a stand-in'\n")  # no version: let through
+    monkeypatch.setattr(dispatch, "_VERSION", {})
+    assert dispatch.claude_version() is None and dispatch.command("sonnet", "s", "hi", tmp_path)

@@ -12,11 +12,13 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import (attention, bmad, changes, chat, cleanup, dispatch, feedback, host, lead, memory, migrate, new_project, onboard,
+from . import __version__
+from . import (attention, bmad, budget, changes, issues, chat, cleanup, dispatch, doctor, feedback, host, lead, memory, migrate, new_project, notify, onboard,
                onboard_agent, onboard_verify, pipeline, project, progress, protected, publish, pulls, quota, retro, review, roadmap,
-               sessions, stack, state, talk, ticket)
-from .config import (MODES, PIPELINE_ROOT, ConfigError, load_host, load_lead, load_slack, load_target, parse_source,
+               sessions, stack, state, talk, ticket, weekly)
+from .config import (MODES, PIPELINE_ROOT, ConfigError, load_host, load_lead, load_slack, load_target, parse_source, self_argv,
                      source_settings, state_home, target_names)
+from . import eval as evaluation
 from .worktree import GitError
 
 SLACK_SDK = "slack_sdk==3.45.0"
@@ -98,7 +100,7 @@ def _summary(record: dict) -> str:
 # quota: waits for its Claude login's usage limit to reset, then continues on its own; host: waits for the machine to
 # have memory again (host.py), then starts on its own.
 EXIT = {"done": 0, "queued": 0, "needs-user": 3, "awaiting-approval": 3, stack.WAITING: 0, stack.SPLIT: 0, quota.STATUS: 0,
-        host.STATUS: 0}
+        host.STATUS: 0, budget.STATUS: 0}
 
 
 def _finish(target, ticket_id: str, records) -> int:
@@ -115,7 +117,7 @@ def _finish(target, ticket_id: str, records) -> int:
 def _cmd_run(target, args) -> int:
     if args.full_review:
         print(f"{args.id}: a new run (reviews read the whole branch)")
-    pipeline.IGNORE_QUOTA = pipeline.IGNORE_HOST = args.now
+    pipeline.IGNORE_QUOTA = pipeline.IGNORE_HOST = pipeline.IGNORE_BUDGET = args.now
     return _finish(target, args.id, pipeline.run(target, args.id, full_review=args.full_review))
 
 
@@ -363,6 +365,54 @@ def _cmd_lead(args) -> int:
     return 0
 
 
+def _cmd_eval(args) -> int:
+    """Ziggy on the eval tasks (eval.py)."""
+    if args.action == "list":
+        for t in evaluation.tasks():
+            print(f"{t['id']}\t{t['type']}\t{t['title']}")
+        return 0
+    if args.action == "validate":
+        rows = evaluation.validate(args.refs or None)
+        for r in rows:
+            print(f"{r['id']}\t{'ok' if r['ok'] else 'BROKEN'}\tseed visible {r['seed_visible']} · hidden fails on seed "
+                  f"{r['seed_hidden_fails']} · solution passes {r['solution_passes']}")
+        return 0 if all(r["ok"] for r in rows) else 1
+    if args.action == "run":
+        root = evaluation.run(args.refs or None, label=args.label, plan_model=args.plan_model, build_model=args.build_model,
+                              echo=lambda line: print(line, flush=True))
+        print(evaluation.summary(evaluation.load(str(root))))
+        return 0
+    if args.action == "show":
+        meta = evaluation.load(args.refs[0] if args.refs else "latest")
+        print(json.dumps(meta, indent=2, ensure_ascii=False) if args.json else evaluation.summary(meta))
+        return 0
+    if len(args.refs) != 2:
+        raise ValueError("eval compare needs two runs")
+    print(evaluation.compare(evaluation.load(args.refs[0]), evaluation.load(args.refs[1])))
+    return 0
+
+
+def _cmd_issues(target, args) -> int:
+    """Labelled GitHub issues of the target → tickets (issues.py)."""
+    if not target.issue_label:
+        raise ValueError(f"{target.name} has no issue_label: set [targets.{target.name}] issue_label = \"ziggy\" (for example)")
+    rows = issues.sync(target, dry_run=args.dry_run)
+    for r in rows:
+        print(f"{r['id']}\t{r['type']}\t#{r['number']} {r['title']}" + ("" if r["created"] else "\t(dry run)"))
+    if not rows:
+        print(f"{target.name}: no new issue labelled {target.issue_label!r}")
+    return 0
+
+
+def _cmd_report(args) -> int:
+    """The weekly report up to yesterday (the panel's tick writes Monday's on its own)."""
+    r = weekly.report([load_target(name) for name in target_names()])
+    print(weekly.markdown(r, notify.language()), end="")
+    if args.save:
+        print(f"\nsaved: {weekly.save(r)}", file=sys.stderr)
+    return 0
+
+
 def _cmd_stats(args) -> int:
     """Cost and delivery across every target (the panel's İstatistik)."""
     from .dashboard import stats
@@ -426,6 +476,16 @@ def _cmd_memory(target, args) -> int:
     if action == "forget":
         out = memory.forget(target, args.id)
         print(f"{out['id']}: unutuldu ({out['file']})")
+        return 0
+    if action == "prune":
+        found = memory.prune_candidates(target)
+        if not found:
+            print(f"{target.name}: nothing to prune")
+        for c in found:
+            done = memory.forget(target, c["id"]) if args.apply else None
+            print(f"{c['id']}\t{c['kind']}\t{c['title']}\t({c['why']})" + ("\tunutuldu" if done else ""))
+        if found and not args.apply:
+            print("forget them with: ziggy memory prune --apply (or one by one: ziggy memory forget M-<n>)")
         return 0
     c = memory.decide(target, args.id, action, text=args.text, title=args.title, replace=args.replace)
     where = roadmap.memory_path(target) if c["kind"] == "yol" else memory.location(target).dir / memory.FILES[c["kind"]]
@@ -495,7 +555,8 @@ def _cmd_roadmap(target, args) -> int:
 
 def _cmd_publish(target, args) -> int:
     body = _read_text(args.body_file) if args.body_file else None
-    print(publish.publish(target, args.id, foreign_ok=args.foreign_ok, title=args.title, body=body))
+    print(publish.publish(target, args.id, foreign_ok=args.foreign_ok, title=args.title, body=body,
+                          approve_findings=args.accept_findings, by=getpass.getuser()))
     return 0
 
 
@@ -528,6 +589,8 @@ def _cmd_listen(target, args) -> int:
             raise
         # slack_sdk is the one third-party dependency, and only listen needs it.
         os.environ["ZIGGY_REEXEC"] = "1"
+        # uv's Python must still find this package when it was installed (the console script imports it)
+        os.environ["PYTHONPATH"] = os.pathsep.join(filter(None, (str(PIPELINE_ROOT), os.environ.get("PYTHONPATH"))))
         os.execvp("uv", ["uv", "run", "--no-project", "--python", "3.12", "--with", SLACK_SDK, "python", *sys.argv])
     listen(target, args.slack)
     return 0
@@ -787,7 +850,7 @@ def _install_ui(port: int) -> None:
     env = {k: os.environ[k] for k in ("PATH", "HOME", "LANG", "ZIGGY_CONFIG", "XDG_CONFIG_HOME", "XDG_STATE_HOME") if os.environ.get(k)}
     plist = {
         "Label": UI_LABEL,
-        "ProgramArguments": [sys.executable, str(PIPELINE_ROOT / "bin" / "ziggy"), "ui", "--port", str(port)],
+        "ProgramArguments": [*self_argv(), "ui", "--port", str(port)],
         "EnvironmentVariables": env,
         "WorkingDirectory": str(Path.home()),
         "RunAtLoad": True,
@@ -1025,6 +1088,7 @@ def _cmd_project_new(args) -> int:
 
 def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="ziggy", description=__doc__)
+    p.add_argument("--version", action="version", version=f"ziggy {__version__}")
     p.add_argument("--target", help="target name from the config (default: default_target)")
     p.add_argument("--no-wait", action="store_true", help="when every run slot of the target is busy, fail instead of waiting in line")
     sub = p.add_subparsers(dest="command", required=True)
@@ -1166,6 +1230,8 @@ def parser() -> argparse.ArgumentParser:
     pub.add_argument("--foreign-ok", action="store_true", help="an adopted PR opened by someone else: push to their branch anyway")
     pub.add_argument("--title", help="PR title, used word for word (default: from the ticket)")
     pub.add_argument("--body-file", help="PR description, used word for word (default: composed from the plan and the review); - reads stdin")
+    pub.add_argument("--accept-findings", action="store_true", help="push although the branch or PR text has findings "
+                     "(files that run in CI or steer agents, secrets, invisible characters): approves the ones listed now")
     pub.set_defaults(func=_cmd_publish)
 
     restack = sub.add_parser("restack", help="a slice whose PR below was squash-merged: rebase it onto its new base "
@@ -1287,16 +1353,38 @@ def parser() -> argparse.ArgumentParser:
     stats_.add_argument("--json", action="store_true", help="machine-readable output")
     stats_.set_defaults(func=_cmd_stats, needs_target=False)
 
+    iss = sub.add_parser("issues", help="GitHub issues labelled issue_label → tickets gh-<n> (the panel does it on its PR sync)")
+    iss.add_argument("action", choices=("sync",))
+    iss.add_argument("--dry-run", action="store_true", help="list what it would create")
+    iss.set_defaults(func=_cmd_issues)
+
+    rep = sub.add_parser("report", help="the weekly report over every target: the last 7 days' done, merged and failed tickets, "
+                                        "cost, delivery, what waits on you, memory to decide (Markdown)")
+    rep.add_argument("--save", action="store_true", help="also write it to <state>/reports/<YYYY>-W<ww>.md")
+    rep.set_defaults(func=_cmd_report, needs_target=False)
+
+    ev = sub.add_parser("eval", help="measure Ziggy on fixed tasks with hidden tests (real Claude sessions; costs quota): "
+                                     "list, validate the tasks, run them, show or compare runs")
+    ev.add_argument("action", choices=("list", "validate", "run", "show", "compare"))
+    ev.add_argument("refs", nargs="*", help="run: task ids or prefixes (default: all); show: a run (default latest); "
+                                            "compare: two runs (names, prefixes, paths or latest)")
+    ev.add_argument("--label", help="run: a name for the run (e.g. the change being measured)")
+    ev.add_argument("--plan-model", help="run: plan_model for every task's target")
+    ev.add_argument("--build-model", help="run: build_model for every task's target")
+    ev.add_argument("--json", action="store_true", help="show: the results file as JSON")
+    ev.set_defaults(func=_cmd_eval, needs_target=False)
+
     retro_ = sub.add_parser("retro", help="look back at a ticket now: propose project memory from what went wrong "
                                           "(read-only session, at most $1; runs on its own when a ticket is done)")
     retro_.add_argument("id")
     retro_.set_defaults(func=_cmd_retro)
     mem = sub.add_parser("memory", help="the target's project memory: entries, candidates to approve or reject, forget an entry")
-    mem.add_argument("action", nargs="?", default="list", choices=("list", "candidates", "approve", "reject", "forget"))
+    mem.add_argument("action", nargs="?", default="list", choices=("list", "candidates", "approve", "reject", "forget", "prune"))
     mem.add_argument("id", nargs="?", help="candidate id (c<n>) for approve/reject, entry id (M-<n>) for forget")
     mem.add_argument("--text", help="with approve: the main text as you want it written (edit and approve)")
     mem.add_argument("--title", help="with approve: the title as you want it written")
     mem.add_argument("--replace", action="store_true", help="with approve: the similar entries get 'Durum: yerini aldı'")
+    mem.add_argument("--apply", action="store_true", help="with prune: forget every entry it lists")
     mem.add_argument("--target", default=argparse.SUPPRESS, help="the target (also accepted before the command)")
     mem.set_defaults(func=_cmd_memory)
     prot = sub.add_parser("protected", help="changes to protected files (AGENTS.md, …) the agents prepared as patches: "
@@ -1331,6 +1419,10 @@ def parser() -> argparse.ArgumentParser:
     sess.add_argument("--all", action="store_true", help="list every ended session in the window, not only the newest 10")
     sess.add_argument("--json", action="store_true", help="machine-readable output")
     sess.set_defaults(func=_cmd_sessions, needs_target=False)
+
+    doc = sub.add_parser("doctor", help="check this machine's prerequisites (Python, git, Claude Code, gh, sandbox, config, "
+                                        "state); exits 1 when something must be fixed")
+    doc.set_defaults(func=lambda args: doctor.report(), needs_target=False)
     return p
 
 
@@ -1363,6 +1455,6 @@ def main(argv: list[str] | None = None) -> int:
     except pipeline.LeftLine as exc:  # stopped while waiting for a run slot: nothing ran, nothing failed
         print(f"ziggy: {exc}", file=sys.stderr)
         return 0
-    except (ConfigError, GitError, pipeline.PipelineError, protected.ProtectedError, publish.PublishError, new_project.SetupError, review.ReviewError, cleanup.CleanupError, project.RouteError, pulls.PullError, stack.StackError, migrate.MigrateError, state.LockError, lead.LeadRefused, LookupError, ValueError, OSError) as exc:
+    except (ConfigError, GitError, evaluation.EvalError, issues.IssuesError, pipeline.PipelineError, protected.ProtectedError, publish.PublishError, new_project.SetupError, review.ReviewError, cleanup.CleanupError, project.RouteError, pulls.PullError, stack.StackError, migrate.MigrateError, state.LockError, lead.LeadRefused, LookupError, ValueError, OSError) as exc:
         print(f"ziggy: {exc}", file=sys.stderr)
         return 2

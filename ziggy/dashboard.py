@@ -23,15 +23,14 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, quote, unquote, urlparse
 
-from . import (attention, bmad, changes, chat, cleanup, config, deferred, dispatch, feedback, host, lead, memory, new_project, notify,
+from . import (attention, bmad, budget, issues, changes, chat, cleanup, config, deferred, dispatch, feedback, host, lead, memory, new_project, notify,
                onboard, onboard_agent, onboard_verify, pipeline, progress, project, protected, publish, pulls, quota, retro, review, roadmap,
                sessions,
-               stack, state, talk, ticket)
+               guard, stack, state, talk, ticket, weekly)
 from .config import ConfigError, Target
 from .worktree import GitError
 
 WEB = Path(__file__).resolve().parent / "web"
-BIN = config.PIPELINE_ROOT / "bin" / "ziggy"
 STATIC = {
     "/": ("index.html", "text/html"),
     "/app.js": ("app.js", "text/javascript"),
@@ -39,6 +38,13 @@ STATIC = {
     "/review.js": ("review.js", "text/javascript"),
     "/sessions.js": ("sessions.js", "text/javascript"),
     "/chat.js": ("chat.js", "text/javascript"),
+    "/i18n.js": ("i18n.js", "text/javascript"),
+    "/i18n/index.en.js": ("i18n/index.en.js", "text/javascript"),
+    "/i18n/app.en.js": ("i18n/app.en.js", "text/javascript"),
+    "/i18n/review.en.js": ("i18n/review.en.js", "text/javascript"),
+    "/i18n/chat.en.js": ("i18n/chat.en.js", "text/javascript"),
+    "/i18n/sessions.en.js": ("i18n/sessions.en.js", "text/javascript"),
+    "/i18n/server.en.js": ("i18n/server.en.js", "text/javascript"),
     "/vendor/prism.js": ("vendor/prism.js", "text/javascript"),
     "/app.css": ("app.css", "text/css"),
     "/review.css": ("review.css", "text/css"),
@@ -298,6 +304,7 @@ def ticket_row(target: Target, ticket_id: str) -> dict:
         "risk": st.get("risk"),
         "size": st.get("size"),
         "round": pipeline.open_round(st),
+        "auto_answer_at": pipeline.default_answer_at(target, st),  # answered with its recommendations then (answer_after)
         "gate": st.get("gate"),
         "checks": st.get("checks") or [],
         "user_reviews": st.get("user_reviews") or [],
@@ -330,6 +337,7 @@ def ticket_row(target: Target, ticket_id: str) -> dict:
         "quota": st.get("quota") if st.get("status") == quota.STATUS else None,
         # Held while the machine is short of memory (status host): {stage, since, sample}.
         "host": st.get("host") if st.get("status") == host.STATUS else None,
+        "budget": st.get("budget") if st.get("status") == budget.STATUS else None,
         "nudges": (st.get("nudges") or [])[-3:],
         "protected_pending": [p["files"] for p in protected.pending(st)],  # patches of protected files waiting for you
         "needs_you": attention.needs_from(target, t, st, running, last_job, dirs),
@@ -677,8 +685,9 @@ def spawn_job(root: Path, cli_args: list[str]) -> dict:
     args = cli_args[2:] if cli_args[:1] == ["--target"] else cli_args
     job_dir = root / f"{datetime.now():%Y%m%d-%H%M%S-%f}-{args[0]}"
     job_dir.mkdir(parents=True)
-    argv = [sys.executable, str(BIN), *cli_args]
-    wrapper = ["/bin/sh", "-c", '"$@" > out.log 2>&1; echo $? > exit', "ziggy-job", *argv]
+    argv = [*config.self_argv(), *cli_args]
+    # The exit code lands in place with a rename: read_jobs never sees an `exit` the shell has created but not written.
+    wrapper = ["/bin/sh", "-c", '"$@" > out.log 2>&1; echo $? > exit.tmp; mv exit.tmp exit', "ziggy-job", *argv]
     proc = subprocess.Popen(wrapper, cwd=job_dir, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                             stderr=subprocess.DEVNULL, start_new_session=True)
     meta = {"command": " ".join(args[:2]), "argv": argv, "pid": proc.pid, "started_at": state.now()}
@@ -793,6 +802,14 @@ def do_action(target: Target, ticket_id: str, action: str, text: str = "", revie
             if len(body) > publish.MAX_BODY:
                 raise ValueError(f"the PR description is longer than {publish.MAX_BODY} characters")
             extra = ["--title", title, "--body-file", str(_write_pr_body(target, ticket_id, body))]
+        # guard.py: what would leave the machine with findings is asked about here, before the job, so the panel can
+        # show them and send the publish again approving exactly those.
+        if opts.get("approve_findings") is True:
+            extra.append("--accept-findings")
+        else:
+            found = publish.pending_findings(target, ticket_id, title, body)
+            if found:
+                raise Refused(guard.message(found))
         pull = state.load_ticket(target, ticket_id).get("pull")
         if pull and pull["author"] != target.gh_user:
             # Someone else's PR: the panel asked first, and says so in the text.
@@ -1302,6 +1319,12 @@ class Handler(BaseHTTPRequestHandler):
             return self._guarded(lambda: self._json(200, {"candidates": [c for t in _targets() for c in cleanup.candidates(t)]}))
         if url.path == "/api/stats":
             return self._guarded(lambda: self._json(200, stats()))
+        if url.path == "/api/report":  # the newest weekly report; none saved yet: this week's so far, unsaved
+            lang = (parse_qs(url.query).get("lang") or [None])[0]
+            lang = lang if lang in config.LANGUAGES else None
+            return self._guarded(lambda: self._json(200, weekly.latest(lang) or {
+                "week": None, "markdown": weekly.markdown(weekly.report(_targets(), today=weekly.now().date() + timedelta(days=1)),
+                                                          lang or notify.language())}))
         if url.path == "/api/status":
             return self._guarded(lambda: self._json(200, {**snapshot(self.server.started_at), "pr_sync": self.server.sync_info,
                                                           "sessions": self.server.sessions.listing(),
@@ -1544,6 +1567,8 @@ class Panel(ThreadingHTTPServer):
             for name in config.target_names():
                 try:
                     target = config.load_target(name)
+                    for row in issues.sync(target):  # labelled GitHub issues → tickets (issue_label)
+                        sys.stderr.write(f"{state.now()} issues {name} {row['id']} from #{row['number']}\n")
                     for result in cleanup.sync(target) + feedback.sync(target):
                         sys.stderr.write(f"{state.now()} pr-sync {name} {result}\n")
                         if isinstance(result, dict) and result.get("error"):  # one ticket's PR (e.g. no gh token): the panel says so
@@ -1567,13 +1592,32 @@ class Panel(ThreadingHTTPServer):
                 for target in targets:
                     stack.wake(target)
                     quota.wake(target)  # tickets held for a usage limit whose window reset (also after a restart)
+                    budget.wake(target)  # tickets held for yesterday's spending cap
+                    answer_due(target)  # question rounds past the target's answer_after: the recommendations, then run
                 lead.tick(targets)  # today's lead of each target whose time came (also the first tick after a sleep)
+                weekly.tick(targets)  # Monday 09:00 on: last week's report, once (a "report" notification)
                 host.wake(targets)  # the ticket held longest while the machine was short of memory, after two calm ticks
                 attention.reconcile(targets)
                 notify.flush_due()
             except Exception as exc:  # noqa: BLE001 - the inbox must not take the panel down
                 sys.stderr.write(f"{state.now()} attention: {exc!r}\n")
             time.sleep(every)
+
+
+def answer_due(target: Target) -> list[str]:
+    """Question rounds open past the target's `answer_after`: answered with their recommendations, and the run continues
+    as a panel job. Returns the ticket ids it answered."""
+    if target.answer_after is None:
+        return []
+    answered = []
+    for ticket_id in state.ticket_ids(target):
+        try:
+            if pipeline.answer_by_default(target, ticket_id):
+                start_job(target, ticket_id, "run", ticket_id)
+                answered.append(ticket_id)
+        except (OSError, ValueError, KeyError, state.LockError) as exc:
+            sys.stderr.write(f"{state.now()} answer_after {target.name}/{ticket_id}: {exc!r}\n")
+    return answered
 
 
 SYNC_EVERY = 180  # seconds between PR checks on GitHub

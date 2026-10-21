@@ -1,0 +1,18 @@
+title = "Pluralize English words using common rules"
+type = "feat"
+body = """
+`pluralize` in `text/plural.py` just appends an "s", giving "boxs", "citys" and "childs". Implement the usual rules.
+
+Signature: `pluralize(word, count=2)`; `count_label(n, word)` builds strings like "3 boxes".
+
+Rules, in priority order (match on the lowercase word):
+1. `count == 1` returns the word unchanged.
+2. Uncountable words stay the same: sheep, fish, series, information, equipment.
+3. Irregulars: man->men, woman->women, child->children, person->people, foot->feet, mouse->mice.
+4. Ends in s, x, z, ch or sh: add "es".
+5. Ends in a consonant followed by y: replace y with "ies" (vowel + y just adds "s").
+6. Otherwise add "s".
+
+Capitalisation of the input is preserved: "Child" -> "Children", "BOX" -> "BOXES". An empty string stays empty. `count_label(n, word)` is `f"{n} {pluralize(word, n)}"` (so 0 and 2+ are plural, 1 is singular).
+"""
+check = "python3 -m unittest discover -s hidden_tests -t . -q"

@@ -34,7 +34,8 @@ def review_run(demo, name, findings):
 
 def finding(fid, disposition="fix", summary="", reason=None):
     return {"id": fid, "severity": "medium", "disposition": disposition, "summary": summary or f"{fid} problem",
-            "location": "api/models/report.py:12", **({"reason": reason} if reason else {})}
+            "location": "api/models/report.py:12", "evidence": "api/models/report.py:12 has no index",
+            **({"reason": reason} if reason else {})}
 
 
 def comments(demo, items):

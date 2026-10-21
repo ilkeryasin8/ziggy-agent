@@ -15,8 +15,8 @@ from ziggy.config import Target
 
 TOKEN = "ghp_FAKEtoken0123456789abcdefXYZ"
 REAL_URL = "https://real-backend.internal.example"
-HAS_SANDBOX = os.access(checks.SANDBOX_EXEC, os.X_OK)
-needs_sandbox = pytest.mark.skipif(not HAS_SANDBOX, reason="needs macOS sandbox-exec")
+HAS_SANDBOX = checks.available()
+needs_sandbox = pytest.mark.skipif(not HAS_SANDBOX, reason="needs an OS sandbox for checks (sandbox-exec or bwrap)")
 
 PACKAGE = {
     "name": "field", "private": True,

@@ -1,0 +1,13 @@
+title = "Block path traversal in read_file"
+type = "fix"
+body = """
+Security report: `read_file(root, rel_path)` in `files/serve.py` can be tricked into returning files outside the served directory using paths like `../secret.txt`. Absolute paths and symlinks pointing out of the root are also served, and a sibling directory whose name merely starts with the root's name (e.g. `/srv/pub-private` next to `/srv/pub`) must not be reachable either.
+
+Expected:
+- Anything that resolves (after following symlinks) to a location outside `root` raises `AccessDenied`, before any file is opened.
+- Paths containing a NUL character raise `AccessDenied`.
+- Paths that go through `..` but stay inside the root (e.g. `docs/../index.html`) keep working.
+- A missing file inside the root still raises `FileNotFoundError`, not `AccessDenied`.
+- Returned contents are still raw bytes.
+"""
+check = "python3 -m unittest discover -s hidden_tests -t . -q"

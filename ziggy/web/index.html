@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="tr">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -8,6 +8,13 @@
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2064%2064%22%3E%3Crect%20width%3D%2264%22%20height%3D%2264%22%20rx%3D%2216%22%20fill%3D%22%23d4ff3a%22/%3E%3Cpath%20d%3D%22M18%2018h22L22%2036h24L28%2050%22%20fill%3D%22none%22%20stroke%3D%22%2310130a%22%20stroke-width%3D%226%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22/%3E%3C/svg%3E">
   <link rel="stylesheet" href="/app.css">
   <link rel="stylesheet" href="/review.css">
+  <script src="/i18n.js" defer></script>
+  <script src="/i18n/index.en.js" defer></script>
+  <script src="/i18n/app.en.js" defer></script>
+  <script src="/i18n/review.en.js" defer></script>
+  <script src="/i18n/chat.en.js" defer></script>
+  <script src="/i18n/sessions.en.js" defer></script>
+  <script src="/i18n/server.en.js" defer></script>
   <script src="/md.js" defer></script>
   <script src="/vendor/prism.js" defer></script>
   <script src="/review.js" defer></script>
@@ -18,30 +25,30 @@
 <body>
   <div class="shell">
   <aside class="side" aria-label="Ziggy">
-    <a class="wordmark" href="#home" aria-label="Ziggy: Komuta">
+    <a class="wordmark" href="#home" aria-label="Ziggy: Komuta" data-i18n-attr="aria-label">
       <svg class="logo" viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="16"/><path d="M18 18h22L22 36h24L28 50"/></svg>
       <span>ziggy</span>
     </a>
-    <nav class="nav" aria-label="Görünümler">
-      <a href="#home" data-view="home"><svg class="icon nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></svg><span>Komuta</span><span class="count" id="needs-count"></span></a>
-      <a href="#talk" data-view="talk"><svg class="icon nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg><span>Sohbet</span></a>
-      <a href="#tickets" data-view="tickets"><svg class="icon nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10"/></svg><span>Ticket'lar</span><span class="count quiet" id="tickets-count"></span></a>
-      <a href="#projects" data-view="projects"><svg class="icon nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg><span>Projeler</span><span class="count quiet" id="projects-count"></span></a>
-      <a href="#sessions" data-view="sessions"><svg class="icon nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v14H4zM8 10l3 2.5L8 15M13 15h3"/></svg><span>Oturumlar</span><span class="count quiet" id="sessions-count"></span></a>
-      <a href="#stats" data-view="stats"><svg class="icon nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg><span>İstatistik</span></a>
-      <a href="#memory" data-view="memory"><svg class="icon nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7z"/></svg><span>Hafıza</span><span class="count" id="memory-count"></span></a>
+    <nav class="nav" aria-label="Görünümler" data-i18n-attr="aria-label">
+      <a href="#home" data-view="home"><svg class="icon nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></svg><span data-i18n>Komuta</span><span class="count" id="needs-count"></span></a>
+      <a href="#talk" data-view="talk"><svg class="icon nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg><span data-i18n>Sohbet</span></a>
+      <a href="#tickets" data-view="tickets"><svg class="icon nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10"/></svg><span data-i18n>Ticket'lar</span><span class="count quiet" id="tickets-count"></span></a>
+      <a href="#projects" data-view="projects"><svg class="icon nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg><span data-i18n>Projeler</span><span class="count quiet" id="projects-count"></span></a>
+      <a href="#sessions" data-view="sessions"><svg class="icon nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v14H4zM8 10l3 2.5L8 15M13 15h3"/></svg><span data-i18n>Oturumlar</span><span class="count quiet" id="sessions-count"></span></a>
+      <a href="#stats" data-view="stats"><svg class="icon nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg><span data-i18n>İstatistik</span></a>
+      <a href="#memory" data-view="memory"><svg class="icon nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7z"/></svg><span data-i18n>Hafıza</span><span class="count" id="memory-count"></span></a>
     </nav>
-    <button type="button" class="primary new-btn" id="open-new">Yeni ticket <kbd>N</kbd></button>
+    <button type="button" class="primary new-btn" id="open-new"><span data-i18n>Yeni ticket</span> <kbd>N</kbd></button>
     <div class="side-foot">
       <div class="inbox">
-        <button type="button" class="ghost inbox-btn" id="inbox-btn" aria-haspopup="true" aria-expanded="false" aria-controls="inbox-pop" title="Gelen kutusu">
-          <span id="inbox-icon"></span><span>Gelen kutusu</span><span class="count" id="inbox-count"></span>
+        <button type="button" class="ghost inbox-btn" id="inbox-btn" aria-haspopup="true" aria-expanded="false" aria-controls="inbox-pop" title="Gelen kutusu" data-i18n-attr="title">
+          <span id="inbox-icon"></span><span data-i18n>Gelen kutusu</span><span class="count" id="inbox-count"></span>
         </button>
-        <div class="inbox-pop" id="inbox-pop" hidden role="dialog" aria-label="Gelen kutusu"></div>
+        <div class="inbox-pop" id="inbox-pop" hidden role="dialog" aria-label="Gelen kutusu" data-i18n-attr="aria-label"></div>
       </div>
-      <div class="side-label side-slots-label">Slotlar</div>
+      <div class="side-label side-slots-label" data-i18n>Slotlar</div>
       <div class="side-slots" id="side-slots"></div>
-      <div class="side-label" id="side-quota-label" hidden>Kota</div>
+      <div class="side-label" id="side-quota-label" hidden data-i18n>Kota</div>
       <div class="side-slots" id="side-quota"></div>
       <div class="health" id="health"></div>
       <span class="status-line" id="status-line"></span>
@@ -50,45 +57,45 @@
 
 
   <main class="page" id="main">
-    <div class="banner bad" id="conn" hidden>Panel yanıt vermiyor; yeniden bağlanmaya çalışıyor.</div>
+    <div class="banner bad" id="conn" hidden data-i18n>Panel yanıt vermiyor; yeniden bağlanmaya çalışıyor.</div>
 
     <section class="view komuta" data-view="home">
       <div class="cmd-row">
         <form id="composer" class="composer cmdbar" autocomplete="off">
           <div class="composer-top">
             <svg class="icon cmd-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></svg>
-            <input id="new-title" class="composer-title" maxlength="300" aria-label="Yeni işin başlığı" placeholder="Ajanlara bir iş ver: ne üzerinde çalışsınlar?">
-            <select id="new-target" aria-label="Proje"></select>
-            <select id="new-type" aria-label="Tip">
-              <option value="feat">feat · özellik</option>
-              <option value="fix">fix · hata</option>
+            <input id="new-title" class="composer-title" maxlength="300" aria-label="Yeni işin başlığı" placeholder="Ajanlara bir iş ver: ne üzerinde çalışsınlar?" data-i18n-attr="aria-label,placeholder">
+            <select id="new-target" aria-label="Proje" data-i18n-attr="aria-label"></select>
+            <select id="new-type" aria-label="Tip" data-i18n-attr="aria-label">
+              <option value="feat" data-i18n>feat · özellik</option>
+              <option value="fix" data-i18n>fix · hata</option>
               <option value="refactor">refactor</option>
-              <option value="chore">chore · bakım</option>
+              <option value="chore" data-i18n>chore · bakım</option>
               <option value="docs">docs</option>
-              <option value="project">project · PROJECT.md</option>
+              <option value="project" data-i18n>project · PROJECT.md</option>
             </select>
-            <select id="new-pipeline" aria-label="Hat" title="Standart: bu pipeline'ın kendi aşamaları. BMad: BMad build-auto planlar ve kurar; kontroller, review ve taslak PR aynı kalır." hidden>
-              <option value="standard">Hat: Standart</option>
-              <option value="bmad">Hat: BMad</option>
+            <select id="new-pipeline" aria-label="Hat" title="Standart: bu pipeline'ın kendi aşamaları. BMad: BMad build-auto planlar ve kurar; kontroller, review ve taslak PR aynı kalır." data-i18n-attr="aria-label,title" hidden>
+              <option value="standard" data-i18n>Hat: Standart</option>
+              <option value="bmad" data-i18n>Hat: BMad</option>
             </select>
-            <kbd class="cmd-kbd" title="Komut çubuğuna odaklan">⌘K</kbd>
+            <kbd class="cmd-kbd" title="Komut çubuğuna odaklan" data-i18n-attr="title">⌘K</kbd>
           </div>
           <div class="composer-more" id="composer-more" hidden>
             <div class="row tight composer-origin" id="composer-origin" hidden></div>
-            <textarea id="new-body" aria-label="Metin" rows="6" maxlength="50000" placeholder="Ne ve neden; hangi dosyalar; neye dokunulmamalı; nasıl doğrulanır (koşuda ağ yok, paket kurulamaz). Markdown."></textarea>
+            <textarea id="new-body" aria-label="Metin" rows="6" maxlength="50000" data-i18n-attr="aria-label,placeholder" placeholder="Ne ve neden; hangi dosyalar; neye dokunulmamalı; nasıl doğrulanır (koşuda ağ yok, paket kurulamaz). Markdown."></textarea>
             <div class="row">
-              <label class="check" title="Plan aşaması bitince kod yazılmadan önce onayını bekler"><input type="checkbox" id="new-checkpoint"> Plan onayı iste</label>
-              <select id="new-lang" aria-label="Çıktı dili" title="Plan, notlar ve sorular bu dilde yazılır; kod ve commit'ler İngilizce kalır">
-                <option value="tr">Çıktı: Türkçe</option>
-                <option value="en">Çıktı: English</option>
-                <option value="">Çıktı: repo ayarı</option>
+              <label class="check" title="Plan aşaması bitince kod yazılmadan önce onayını bekler" data-i18n-attr="title"><input type="checkbox" id="new-checkpoint"> <span data-i18n>Plan onayı iste</span></label>
+              <select id="new-lang" aria-label="Çıktı dili" title="Plan, notlar ve sorular bu dilde yazılır; kod ve commit'ler İngilizce kalır" data-i18n-attr="aria-label,title">
+                <option value="tr" data-i18n>Çıktı: Türkçe</option>
+                <option value="en" data-i18n>Çıktı: English</option>
+                <option value="" data-i18n>Çıktı: repo ayarı</option>
               </select>
-              <select id="new-after" aria-label="Sonra başla" title="Bu ticket, seçilen ticket bitene kadar başlamaz; o bitince kendiliğinden başlar">
-                <option value="">Hemen başlayabilir</option>
+              <select id="new-after" aria-label="Sonra başla" title="Bu ticket, seçilen ticket bitene kadar başlamaz; o bitince kendiliğinden başlar" data-i18n-attr="aria-label,title">
+                <option value="" data-i18n>Hemen başlayabilir</option>
               </select>
               <span class="muted small grow" id="composer-hint"></span>
-              <button type="submit" value="create">Oluştur</button>
-              <button type="submit" value="start" class="primary">Oluştur ve başlat</button>
+              <button type="submit" value="create" data-i18n>Oluştur</button>
+              <button type="submit" value="start" class="primary" data-i18n>Oluştur ve başlat</button>
             </div>
           </div>
         </form>
@@ -96,26 +103,26 @@
       </div>
 
       <div class="komuta-main">
-        <div class="home-filter" id="home-filter" role="group" aria-label="Proje filtresi" hidden></div>
+        <div class="home-filter" id="home-filter" role="group" aria-label="Proje filtresi" data-i18n-attr="aria-label" hidden></div>
         <div class="komuta-head">
-          <h1 id="komuta-title">Komuta</h1>
-          <span class="muted small" id="board-hint">J/K ile gez · ↵ sıradaki adım</span>
+          <h1 id="komuta-title" data-i18n>Komuta</h1>
+          <span class="muted small" id="board-hint" data-i18n>J/K ile gez · ↵ sıradaki adım</span>
         </div>
         <div class="board" id="home-board"></div>
-        <section class="next-work" id="home-next" aria-label="Sıradaki işler" hidden></section>
+        <section class="next-work" id="home-next" aria-label="Sıradaki işler" data-i18n-attr="aria-label" hidden></section>
       </div>
     </section>
 
     <section class="view talk-page" data-view="talk" hidden>
       <div class="toolbar">
-        <div class="toolbar-title"><h1>Sohbet</h1><p class="muted">Bir projeyle ticket'sız konuş: okuyan sohbet ana checkout'a bakar, yazan sohbet kendi worktree'sinde değişiklik yapar. Claude hesabının bağlantıları (issue tracker gibi) okunabilir.</p></div>
-        <div class="toolbar-end"><select id="talk-target" aria-label="Proje"></select></div>
+        <div class="toolbar-title"><h1 data-i18n>Sohbet</h1><p class="muted" data-i18n>Bir projeyle ticket'sız konuş: okuyan sohbet ana checkout'a bakar, yazan sohbet kendi worktree'sinde değişiklik yapar. Claude hesabının bağlantıları (issue tracker gibi) okunabilir.</p></div>
+        <div class="toolbar-end"><select id="talk-target" aria-label="Proje" data-i18n-attr="aria-label"></select></div>
       </div>
       <div class="talk-grid">
-        <aside class="talk-side" aria-label="Sohbetler">
+        <aside class="talk-side" aria-label="Sohbetler" data-i18n-attr="aria-label">
           <div class="row tight">
-            <a class="button small primary" id="talk-new-read" title="Ana checkout'u okur; dosya değiştirmez, komut çalıştırmaz">+ Okuyan sohbet</a>
-            <a class="button small" id="talk-new-write" title="Kendi worktree'sinde (chat/&lt;id&gt; dalı) dosya düzenler, komut çalıştırır, commit atar; push yok">+ Yazan sohbet</a>
+            <a class="button small primary" id="talk-new-read" title="Ana checkout'u okur; dosya değiştirmez, komut çalıştırmaz" data-i18n-attr="title" data-i18n>+ Okuyan sohbet</a>
+            <a class="button small" id="talk-new-write" title="Kendi worktree'sinde (chat/&lt;id&gt; dalı) dosya düzenler, komut çalıştırır, commit atar; push yok" data-i18n-attr="title" data-i18n>+ Yazan sohbet</a>
           </div>
           <ul class="talk-list" id="talk-list"></ul>
         </aside>
@@ -128,14 +135,14 @@
 
     <section class="view" data-view="tickets" hidden>
       <div class="toolbar">
-        <h1>Ticket'lar <span class="muted" id="ticket-count"></span></h1>
+        <h1><span data-i18n>Ticket'lar</span> <span class="muted" id="ticket-count"></span></h1>
         <div class="toolbar-end">
-          <input type="search" id="search" placeholder="Süz: id, başlık, dal" aria-label="Ticket ara">
-          <select id="filter" aria-label="Proje filtresi"></select>
-          <button type="button" class="small" id="toggle-cleanup">Temizlik</button>
+          <input type="search" id="search" placeholder="Süz: id, başlık, dal" aria-label="Ticket ara" data-i18n-attr="placeholder,aria-label">
+          <select id="filter" aria-label="Proje filtresi" data-i18n-attr="aria-label"></select>
+          <button type="button" class="small" id="toggle-cleanup" data-i18n>Temizlik</button>
         </div>
       </div>
-      <div class="view-tabs" id="ticket-tabs" role="tablist" aria-label="Ticket görünümü"></div>
+      <div class="view-tabs" id="ticket-tabs" role="tablist" aria-label="Ticket görünümü" data-i18n-attr="aria-label"></div>
       <div id="cleanup" hidden></div>
       <div class="list ticket-grid" id="ticket-list" role="list"></div>
       <label class="check small old-toggle" id="old-toggle" hidden><input type="checkbox" id="show-old"> <span id="old-label"></span></label>
@@ -143,25 +150,25 @@
 
     <section class="view" data-view="sessions" hidden>
       <div class="toolbar">
-        <div class="toolbar-title"><h1>Oturumlar</h1><p class="muted">Bu makinedeki Ziggy dışı Claude Code oturumları: masaüstü, terminal, VS Code, headless</p></div>
+        <div class="toolbar-title"><h1 data-i18n>Oturumlar</h1><p class="muted" data-i18n>Bu makinedeki Ziggy dışı Claude Code oturumları: masaüstü, terminal, VS Code, headless</p></div>
       </div>
       <div id="sessions-page"></div>
     </section>
 
     <section class="view" data-view="stats" hidden>
-      <div class="toolbar"><div class="toolbar-title"><h1>İstatistik</h1><p class="muted">Her oturumun kaydından: maliyet, süre, token, sonuç</p></div></div>
+      <div class="toolbar"><div class="toolbar-title"><h1 data-i18n>İstatistik</h1><p class="muted" data-i18n>Her oturumun kaydından: maliyet, süre, token, sonuç</p></div></div>
       <div id="stats-body"></div>
     </section>
 
     <section class="view" data-view="memory" hidden>
-      <div class="toolbar"><div class="toolbar-title"><h1>Proje hafızası</h1><p class="muted">Projelerin kuralları, kararları, tuzakları ve biten işleri; aşama oturumlarına verilir. Sen onaylamadan hafızaya hiçbir şey yazılmaz.</p></div></div>
+      <div class="toolbar"><div class="toolbar-title"><h1 data-i18n>Proje hafızası</h1><p class="muted" data-i18n>Projelerin kuralları, kararları, tuzakları ve biten işleri; aşama oturumlarına verilir. Sen onaylamadan hafızaya hiçbir şey yazılmaz.</p></div></div>
       <div id="memory-body"></div>
     </section>
 
     <section class="view ticket-page" data-view="ticket" hidden>
       <div class="crumbs">
-        <a href="#tickets" id="d-back">Ticket'lar</a><span aria-hidden="true">/</span><span class="mono" id="d-crumb"></span>
-        <span class="grow"></span><span class="muted small"><kbd>esc</kbd> geri</span>
+        <a href="#tickets" id="d-back" data-i18n>Ticket'lar</a><span aria-hidden="true">/</span><span class="mono" id="d-crumb"></span>
+        <span class="grow"></span><span class="muted small"><kbd>esc</kbd> <span data-i18n>geri</span></span>
       </div>
       <article class="tpage" id="drawer" hidden aria-labelledby="d-title">
         <header class="tpage-head">
@@ -173,15 +180,15 @@
           <div class="row tight tpage-actions" id="d-actions"></div>
         </header>
         <div id="d-pipe"></div>
-        <section class="next-step" id="d-next" aria-label="Sıradaki adım" hidden></section>
+        <section class="next-step" id="d-next" aria-label="Sıradaki adım" data-i18n-attr="aria-label" hidden></section>
         <div class="tpage-grid">
           <div class="tpage-main">
-            <nav class="tabs" id="d-tabs" role="tablist" aria-label="Ticket görünümü"></nav>
+            <nav class="tabs" id="d-tabs" role="tablist" aria-label="Ticket görünümü" data-i18n-attr="aria-label"></nav>
             <div class="subtabs" id="d-subtabs" hidden></div>
             <div class="drawer-body" id="d-body"></div>
           </div>
-          <aside class="tpage-side" aria-label="Ajanla konuş">
-            <h2 class="rail-h">Ajanla konuş</h2>
+          <aside class="tpage-side" aria-label="Ajanla konuş" data-i18n-attr="aria-label">
+            <h2 class="rail-h" data-i18n>Ajanla konuş</h2>
             <div id="d-chat"></div>
           </aside>
         </div>
@@ -190,75 +197,75 @@
 
     <section class="view" data-view="projects" hidden>
       <div class="toolbar">
-        <div class="toolbar-title"><h1>Projeler</h1><p class="muted">Ziggy'nin iş yaptığı repolar. Her birinin kuralları kendi <code>AGENTS.md</code>'sinden okunur.</p></div>
+        <div class="toolbar-title"><h1 data-i18n>Projeler</h1><p class="muted"><span data-i18n>Ziggy'nin iş yaptığı repolar. Her birinin kuralları kendi</span> <code>AGENTS.md</code><span data-i18n>'sinden okunur.</span></p></div>
         <div class="toolbar-end">
-          <button type="button" id="toggle-project">Sıfırdan yeni proje</button>
-          <button type="button" class="primary" id="toggle-onboard">+ Mevcut repoyu ekle</button>
+          <button type="button" id="toggle-project" data-i18n>Sıfırdan yeni proje</button>
+          <button type="button" class="primary" id="toggle-onboard" data-i18n>+ Mevcut repoyu ekle</button>
         </div>
       </div>
 
       <section class="panel" id="project" hidden>
-        <div class="panel-head"><h2>Yeni proje</h2><span class="muted small">sıfırdan repo · GitHub'a push · pipeline'a eklenir</span></div>
+        <div class="panel-head"><h2 data-i18n>Yeni proje</h2><span class="muted small" data-i18n>sıfırdan repo · GitHub'a push · pipeline'a eklenir</span></div>
         <form id="project-form" class="form-grid" autocomplete="off">
-          <label for="np-name">Ad</label><input id="np-name" name="name" required pattern="[A-Za-z0-9][A-Za-z0-9._\-]*" placeholder="ornek-proje">
-          <label for="np-parent">Klasör</label><select id="np-parent" name="parent"></select>
-          <label for="np-desc">Ne için</label><textarea id="np-desc" name="description" rows="2" placeholder="Tek cümle: proje ne yapacak (README ve AGENTS.md'ye yazılır)"></textarea>
-          <label for="np-owner">GitHub sahibi</label><select id="np-owner" name="owner" required></select>
-          <label for="np-claude">Claude hesabı</label><select id="np-claude" name="claude"></select>
-          <span class="label">Görünürlük</span><label class="check"><input type="checkbox" id="np-private" checked> Private</label>
+          <label for="np-name" data-i18n>Ad</label><input id="np-name" name="name" required pattern="[A-Za-z0-9][A-Za-z0-9._\-]*" placeholder="ornek-proje" data-i18n-attr="placeholder">
+          <label for="np-parent" data-i18n>Klasör</label><select id="np-parent" name="parent"></select>
+          <label for="np-desc" data-i18n>Ne için</label><textarea id="np-desc" name="description" rows="2" placeholder="Tek cümle: proje ne yapacak (README ve AGENTS.md'ye yazılır)" data-i18n-attr="placeholder"></textarea>
+          <label for="np-owner" data-i18n>GitHub sahibi</label><select id="np-owner" name="owner" required></select>
+          <label for="np-claude" data-i18n>Claude hesabı</label><select id="np-claude" name="claude"></select>
+          <span class="label" data-i18n>Görünürlük</span><label class="check"><input type="checkbox" id="np-private" checked> Private</label>
           <span></span><div class="muted small row" id="np-info"></div>
-          <span></span><div class="row end"><button type="submit" class="primary">Oluştur</button></div>
+          <span></span><div class="row end"><button type="submit" class="primary" data-i18n>Oluştur</button></div>
         </form>
         <div id="project-result"></div>
       </section>
 
       <section class="panel" id="onboard" hidden>
-        <div class="panel-head"><h2>Mevcut repoyu ekle</h2></div>
+        <div class="panel-head"><h2 data-i18n>Mevcut repoyu ekle</h2></div>
         <form id="detect-form" class="row" autocomplete="off">
-          <input id="detect-path" name="path" aria-label="Repo yolu" class="grow" placeholder="~/Developer/proje-adi">
-          <button type="submit">İncele</button>
+          <input id="detect-path" name="path" aria-label="Repo yolu" class="grow" placeholder="~/Developer/proje-adi" data-i18n-attr="aria-label,placeholder">
+          <button type="submit" data-i18n>İncele</button>
         </form>
         <div id="repo-list"></div>
         <div id="onboard-result"></div>
       </section>
 
       <div class="pgrid" id="targets" role="list"></div>
-      <section class="leftovers" id="leftovers" aria-label="Çıkarılmış projelerin artıkları" hidden></section>
+      <section class="leftovers" id="leftovers" aria-label="Çıkarılmış projelerin artıkları" data-i18n-attr="aria-label" hidden></section>
     </section>
 
     <section class="view" data-view="project" hidden>
-      <a class="small back" href="#projects">← Projeler</a>
+      <a class="small back" href="#projects" data-i18n>← Projeler</a>
       <div class="toolbar" id="pj-head"></div>
       <section class="panel compose">
         <form id="pj-form" class="stack" autocomplete="off">
-          <label for="pj-text" class="compose-label">Bu projede ne yapmak istiyorsun?</label>
-          <textarea id="pj-text" rows="3" placeholder="Örn. ürün fikrini ve kapsamı PROJECT.md'de netleştirelim · login'deki hatayı düzelt · bağımlılıkları güncelle · haftalık rapor ekranı ekle"></textarea>
+          <label for="pj-text" class="compose-label" data-i18n>Bu projede ne yapmak istiyorsun?</label>
+          <textarea id="pj-text" rows="3" placeholder="Örn. ürün fikrini ve kapsamı PROJECT.md'de netleştirelim · login'deki hatayı düzelt · bağımlılıkları güncelle · haftalık rapor ekranı ekle" data-i18n-attr="placeholder"></textarea>
           <div class="row">
-            <select id="pj-lang" aria-label="Çıktı dili">
-              <option value="tr">Çıktı: Türkçe</option>
-              <option value="en">Çıktı: English</option>
-              <option value="">Çıktı: repo ayarı</option>
+            <select id="pj-lang" aria-label="Çıktı dili" data-i18n-attr="aria-label">
+              <option value="tr" data-i18n>Çıktı: Türkçe</option>
+              <option value="en" data-i18n>Çıktı: English</option>
+              <option value="" data-i18n>Çıktı: repo ayarı</option>
             </select>
-            <span class="muted small grow">Hangi tipte bir ticket gerektiğini önerir; sen onaylamadan bir şey başlamaz.</span>
-            <button type="submit" class="primary" id="pj-route">Tip öner</button>
+            <span class="muted small grow" data-i18n>Hangi tipte bir ticket gerektiğini önerir; sen onaylamadan bir şey başlamaz.</span>
+            <button type="submit" class="primary" id="pj-route" data-i18n>Tip öner</button>
           </div>
         </form>
         <div id="pj-proposal"></div>
       </section>
       <section class="block">
-        <div class="block-head"><h2>Yol haritası</h2><span class="muted small mono road-where" id="pj-road-where"></span></div>
+        <div class="block-head"><h2 data-i18n>Yol haritası</h2><span class="muted small mono road-where" id="pj-road-where"></span></div>
         <div id="pj-roadmap"></div>
       </section>
       <section class="block">
-        <div class="block-head"><h2>Proje belgesi</h2><span class="muted small" id="pj-base"></span></div>
+        <div class="block-head"><h2 data-i18n>Proje belgesi</h2><span class="muted small" id="pj-base"></span></div>
         <div id="pj-doc"></div>
       </section>
       <section class="block">
-        <div class="block-head"><h2>Açık PR'lar</h2><span class="muted small">Codex review · bulguları ajan düzeltir · PR'ın kendi dalına push</span></div>
+        <div class="block-head"><h2 data-i18n>Açık PR'lar</h2><span class="muted small" data-i18n>Codex review · bulguları ajan düzeltir · PR'ın kendi dalına push</span></div>
         <div class="stories" id="pj-pulls"></div>
       </section>
       <section class="block">
-        <div class="block-head"><h2>Bu projenin ticket'ları</h2></div>
+        <div class="block-head"><h2 data-i18n>Bu projenin ticket'ları</h2></div>
         <div class="list ticket-grid" id="pj-tickets" role="list"></div>
       </section>
     </section>
@@ -267,7 +274,7 @@
 
   <div class="modal" id="doc-modal" hidden>
     <div class="modal-box doc" role="dialog" aria-modal="true" aria-labelledby="doc-title">
-      <div class="panel-head"><h2 id="doc-title"></h2><button type="button" class="ghost icon-only" id="close-doc" aria-label="Kapat">✕</button></div>
+      <div class="panel-head"><h2 id="doc-title"></h2><button type="button" class="ghost icon-only" id="close-doc" aria-label="Kapat" data-i18n-attr="aria-label">✕</button></div>
       <div class="muted small mono" id="doc-path"></div>
       <div class="doc-body md" id="doc-body"></div>
     </div>
@@ -278,8 +285,8 @@
     <div class="modal-box" role="dialog" aria-modal="true">
       <p id="modal-text"></p>
       <div class="row end">
-        <button type="button" class="ghost" id="modal-no">Vazgeç</button>
-        <button type="button" class="primary" id="modal-yes">Evet</button>
+        <button type="button" class="ghost" id="modal-no" data-i18n>Vazgeç</button>
+        <button type="button" class="primary" id="modal-yes" data-i18n>Evet</button>
       </div>
     </div>
   </div>
@@ -291,8 +298,8 @@
       <textarea id="ask-input" rows="5" aria-labelledby="ask-title"></textarea>
       <label class="check small" id="ask-check-row"><input type="checkbox" id="ask-check"> <span id="ask-check-label"></span></label>
       <div class="row end">
-        <button type="button" class="ghost" id="ask-no">Vazgeç</button>
-        <button type="submit" class="primary" id="ask-yes">Gönder</button>
+        <button type="button" class="ghost" id="ask-no" data-i18n>Vazgeç</button>
+        <button type="submit" class="primary" id="ask-yes" data-i18n>Gönder</button>
       </div>
     </form>
   </div>

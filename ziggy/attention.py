@@ -37,7 +37,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from . import cleanup, config, dispatch, feedback, lead, memory, notify, pipeline, progress, protected, quota, roadmap, stack, state
-from . import host, stalls
+from . import budget, host, stalls
 from .config import Target
 
 SEVERITY = {"question": "high", "approval": "high", "lost": "high", "error": "high",
@@ -45,6 +45,13 @@ SEVERITY = {"question": "high", "approval": "high", "lost": "high", "error": "hi
             "blocked": "medium", "restack": "medium", "start": "medium", "quota": "medium", "publish": "low", "push": "low",
             "merged-kept": "low", "memory": "low", "lead": "low", "protected": "medium"}
 RANK = {"high": 0, "medium": 1, "low": 2}
+# A ticket's weight in triage: its plan's risk, plus one for a large change. Among equally urgent items the heavier
+# one comes first: it is where a missed problem costs the most.
+TICKET_RISK = {"high": 2, "medium": 1}
+
+
+def triage_weight(risk: str | None, size: str | None) -> int:
+    return TICKET_RISK.get(risk or "", 0) + (1 if size == "large" else 0)
 DISMISSABLE = frozenset({"failed", "lost", "job-error", "publish", "push", "merged-kept", "pr-feedback", "blocked", "restack"})
 LABEL = {  # the notification text, as the panel names each kind (pr-feedback's own title says it: "PR'da 2 yeni yorum")
     "question": "Ajanın soruları var", "approval": "Plan onayını bekliyor", "publish": "Bitti, PR açılmadı",
@@ -54,6 +61,15 @@ LABEL = {  # the notification text, as the panel names each kind (pr-feedback's 
     "memory": "Yeni hafıza önerisi",
     "blocked": "Beklediği ticket takıldı", "restack": "Yeniden düzenleme gerekiyor", "start": "Başlatılmayı bekliyor",
     "quota": "Kota doldu", "lead": "Yeni iş önerisi", "protected": "Korumalı dosya değişikliği",
+}
+LABEL_EN = {  # LABEL in English, for notifications when [notifications] language is "en"
+    "question": "The agent has questions", "approval": "Plan waiting for approval", "publish": "Done, no PR yet",
+    "failed": "Run failed", "job-error": "Command failed", "error": "Ticket state unreadable",
+    "push": "Branch changed after the PR", "merged-kept": "PR closed but the worktree still has work",
+    "quiet": "Session quiet for a while", "stall": "A command is taking long", "lost": "The run's process died",
+    "memory": "New memory proposal",
+    "blocked": "A ticket it waits for is stuck", "restack": "Needs a restack", "start": "Waiting to be started",
+    "quota": "Usage limit reached", "lead": "New work proposal", "protected": "Protected file change",
 }
 PR_STATE = {"MERGED": "birleştirildi", "CLOSED": "kapandı"}  # cleanup.CLEANABLE, as the titles say it
 DEP_WHY = {"failed": "başarısız oldu", "closed": "PR'ı birleşmeden kapandı", "archived": "bitmeden arşivlendi",
@@ -65,7 +81,8 @@ WAITING = frozenset({"question", "approval", "failed", "lost", "job-error", "err
                      "start", "protected"})
 LANDING = frozenset({"push", "merged-kept"})
 # Statuses a finishing run saves before letting go.
-SETTLED = ("needs-user", "awaiting-approval", "failed", "done", stack.WAITING, stack.SPLIT, quota.STATUS, host.STATUS)
+SETTLED = ("needs-user", "awaiting-approval", "failed", "done", stack.WAITING, stack.SPLIT, quota.STATUS, host.STATUS,
+           budget.STATUS)
 LEDGER = "attention.json"
 DISMISSED = "dismissed.json"
 KEEP_RESOLVED = timedelta(days=30)
@@ -445,10 +462,11 @@ def _commit(changes: list[tuple[str, dict, bool, set | None]], *, send: bool = T
         return
     shown = []
     for row in added:
+        labels = LABEL if notify.language() == "tr" else LABEL_EN
         if notify.wants(row["kind"]) and notify.send(
                 f"{row['ticket']} · {row['target']}",
-                f"{LABEL.get(row['kind'], row['title'])}: {row['ticket_title'] or row['title']}",
-                key=f"{row['target']}/{row['ticket']}/{row['key']}"):
+                f"{labels.get(row['kind'], row['title'])}: {row['ticket_title'] or row['title']}",
+                key=f"{row['target']}/{row['ticket']}/{row['key']}", kind=row["kind"]):
             shown.append((row["target"], row["ticket"], row["key"], row["created_at"]))
     if shown:
         with _locked():
@@ -668,7 +686,7 @@ def _group(row: dict) -> str | None:
         return "waiting_on_you"
     if row.get("running") or kind in ("quiet", "stall"):
         return "working"
-    if row.get("status") in (stack.WAITING, quota.STATUS, host.STATUS) or (row.get("status") == stack.SPLIT and row.get("split_open")):
+    if row.get("status") in (stack.WAITING, quota.STATUS, host.STATUS, budget.STATUS) or (row.get("status") == stack.SPLIT and row.get("split_open")):
         return "waiting_on_others"
     if kind == "publish":
         return "ready_for_review"
@@ -680,7 +698,7 @@ def _group(row: dict) -> str | None:
 
 def board_from(rows) -> dict:
     """The home board from ticket rows (target, id, status, running, run_started_at, pr, pr_state, archived,
-    split_open, updated_at, needs_you): waiting_on_you (questions, approvals, failures, lost runs, job errors, a
+    split_open, updated_at, needs_you, risk, size): waiting_on_you (questions, approvals, failures, lost runs, job errors, a
     dependency that is stuck, a slice to restack), ready_for_review (done without a PR), working (running, quiet, a
     stalled tool call), waiting_on_others (waiting for the tickets it starts after, for its Claude login's usage limit
     to reset or for the machine to have memory again; a split ticket with open slices), landing (PR open, push,
@@ -695,15 +713,17 @@ def board_from(rows) -> dict:
         out[group].append({"target": row["target"], "id": row["id"], "kind": n.get("kind"), "severity": n.get("severity"),
                            "key": n.get("key"), "unread": bool(n) and n.get("seen_at") is None,
                            "since": n.get("created_at") or row.get("updated_at") or "",
-                           "_started": row.get("run_started_at") or "", "_updated": row.get("updated_at") or ""})
-    out["waiting_on_you"].sort(key=lambda e: (RANK.get(e["severity"], 3), e["since"]))
+                           "_started": row.get("run_started_at") or "", "_updated": row.get("updated_at") or "",
+                           "_weight": triage_weight(row.get("risk"), row.get("size"))})
+    out["waiting_on_you"].sort(key=lambda e: (RANK.get(e["severity"], 3), -e["_weight"], e["since"]))
     out["working"].sort(key=lambda e: (not e["_started"], e["_started"]))
     out["ready_for_review"].sort(key=lambda e: e["since"], reverse=True)
+    out["ready_for_review"].sort(key=lambda e: e["_weight"], reverse=True)  # stable: the heaviest first, newest within
     out["waiting_on_others"].sort(key=lambda e: e["_updated"], reverse=True)
     out["landing"].sort(key=lambda e: e["_updated"], reverse=True)
     for entries in out.values():
         for e in entries:
-            del e["_started"], e["_updated"]
+            del e["_started"], e["_updated"], e["_weight"]
     return out
 
 
@@ -725,5 +745,6 @@ def board(targets) -> dict:
             rows.append({"target": target.name, "id": ticket_id, "status": st.get("status"), "running": running,
                          "run_started_at": (st.get("run") or {}).get("started_at") if running else None,
                          "pr": st.get("pr"), "pr_state": st.get("pr_state"), "archived": st.get("archived"),
-                         "split_open": split_open, "split_landing": split_landing, "updated_at": st.get("updated_at"), "needs_you": item})
+                         "split_open": split_open, "split_landing": split_landing, "updated_at": st.get("updated_at"), "needs_you": item,
+                         "risk": st.get("risk"), "size": st.get("size")})
     return board_from(rows)

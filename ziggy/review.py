@@ -9,11 +9,12 @@ a new run (pipeline.request_changes) on the same branch.
 """
 import os
 import re
+import shutil
 import subprocess
 from datetime import datetime
 from pathlib import Path
 
-from . import pulls, state
+from . import dispatch, guard, pulls, state
 from .config import Target
 from .publish import PublishError, _clean_env, gh_as
 from . import worktree
@@ -28,6 +29,23 @@ class ReviewError(Exception):
 
 def codex_bin() -> str:
     return os.environ.get("ZIGGY_CODEX", "codex")
+
+
+def wanted(target: Target, st: dict) -> bool:
+    """Whether a done ticket gets the Codex review on its own (`codex_review`): always, or when its plan rated it high
+    risk or large ("risky"). The second opinion is spent where a missed bug costs the most."""
+    if target.codex_review == "always":
+        return True
+    return target.codex_review == "risky" and (st.get("risk") == "high" or st.get("size") == "large")
+
+
+def schedule(target: Target, ticket_id: str, st: dict) -> dict | None:
+    """Start the Codex review as a background job (the panel's "Codex review başlat") when `wanted` and `codex` is
+    installed; returns the job, else None. Called by the engine once a run ends done."""
+    if not wanted(target, st) or not shutil.which(codex_bin()):
+        return None
+    from .dashboard import start_job  # the panel's detached jobs; dashboard imports the engine
+    return start_job(target, ticket_id, "review", ticket_id)
 
 
 def _dir(target: Target, ticket_id: str) -> Path:
@@ -67,7 +85,9 @@ def run(target: Target, ticket_id: str) -> dict:
     argv = [codex_bin(), "review", "--base", base,
             "-c", 'sandbox_mode="read-only"', "-c", 'approval_policy="never"', "-c", "notify=[]"]
     try:
-        proc = subprocess.run(argv, cwd=wt, env=_clean_env(), stdin=subprocess.DEVNULL,
+        # Credentials stay out of the review of an untrusted diff; only Codex's own login goes in.
+        proc = subprocess.run(argv, cwd=wt, env=dispatch.scrub(_clean_env(), keep={"OPENAI_API_KEY", "CODEX_API_KEY"}),
+                              stdin=subprocess.DEVNULL,
                               capture_output=True, text=True, timeout=TIMEOUT)
         code, stdout, stderr = proc.returncode, proc.stdout, proc.stderr
     except subprocess.TimeoutExpired as exc:
@@ -122,9 +142,13 @@ def post(target: Target, ticket_id: str, review_id: str) -> str:
     if not r.get("head") or r["head"] != st.get("published_head"):
         raise ReviewError(f"review {review_id} is of {(r.get('head') or '?')[:7]}, but the PR shows "
                           f"{(st.get('published_head') or '?')[:7]}; update the PR or review again")
+    # The review read an untrusted diff, so its text is cleaned like any PR text, and a credential in it stops the post.
+    leaked = [f for f in guard._scan_text(r["text"], "the review") if f["kind"] == "secret"]
+    if leaked:
+        raise ReviewError(f"review {review_id} quotes what looks like a credential ({leaked[0]['detail']}); not posted")
     body = _dir(target, ticket_id) / review_id / "comment.md"
     sha = (r.get("head") or "")[:7]
-    body.write_text(f"### Codex review · `{sha}`\n\n{r['text'].strip()}\n", encoding="utf-8")
+    body.write_text(guard.clean_text(f"### Codex review · `{sha}`\n\n{r['text'].strip()}\n"), encoding="utf-8")
     try:
         gh_as(target.gh_user, "pr", "comment", st["pr"], "--body-file", str(body), cwd=target.path)
     except PublishError as exc:

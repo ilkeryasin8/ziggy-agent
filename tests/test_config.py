@@ -63,13 +63,13 @@ def test_port_ranges_must_not_overlap_across_targets(env):
 
 def test_notifications_defaults_and_values(env, tmp_path, monkeypatch):
     write(env)
-    assert config.load_notifications() == config.NotificationsConfig()
+    assert config.load_notifications() == config.NotificationsConfig(language="tr")  # LANG is Turkish in the tests
     assert config.load_notifications().events == config.NOTIFY_EVENTS and config.load_notifications().min_interval == 30
     write(env, top='[notifications]\nenabled = false\nevents = ["question", "failed"]\nmin_interval = "2m"\n')
     n = config.load_notifications()
     assert n.enabled is False and n.events == ("question", "failed") and n.min_interval == 120
     monkeypatch.setenv("ZIGGY_CONFIG", str(tmp_path / "missing.toml"))
-    assert config.load_notifications() == config.NotificationsConfig()
+    assert config.load_notifications() == config.NotificationsConfig(language="tr")  # LANG is Turkish in the tests
 
 
 @pytest.mark.parametrize("table, error", [

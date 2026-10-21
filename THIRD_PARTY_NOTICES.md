@@ -4,7 +4,7 @@ Ziggy is MIT-licensed (see `LICENSE`). It includes or adapts the following.
 
 ## BMad Method (prompts adapted)
 
-`prompts/roles/*` and `prompts/lenses/*` are adapted from [BMAD-METHOD](https://github.com/bmad-code-org/BMAD-METHOD)
+`ziggy/prompts/roles/*` and `ziggy/prompts/lenses/*` are adapted from [BMAD-METHOD](https://github.com/bmad-code-org/BMAD-METHOD)
 (release 6.12.0). Ziggy does not bundle BMad itself: the optional BMad pipeline installs it into a target with
 `npx bmad-method@6.12.0`. BMad™ and BMad Method™ are trademarks of BMad Code, LLC; the names are used here only to
 say where these prompts come from and which tool the optional pipeline runs.

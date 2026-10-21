@@ -1,0 +1,15 @@
+title = "Respect UTC offsets when parsing timestamps"
+type = "fix"
+body = """
+`parse_timestamp` is supposed to return a timezone-aware UTC datetime, but timestamps that carry an explicit offset are parsed wrongly: "2024-03-01T10:00:00+02:00" comes back as 10:00 UTC, i.e. two hours late. The offset is being thrown away.
+
+Where: `timeutil/parse.py` (`parse_timestamp`, and `format_utc` for naive input).
+
+Expected:
+- Strings with an offset are converted to the equivalent instant in UTC.
+- Strings without any offset (including date-only strings) are treated as already being UTC.
+- The returned value always has `tzinfo` equal to UTC.
+- `format_utc` must give the same result on every machine regardless of its local timezone, including when handed a naive datetime (treated as UTC).
+- Trailing `Z` handling and the output format `YYYY-MM-DDTHH:MM:SSZ` must keep working.
+"""
+check = "python3 -m unittest discover -s hidden_tests -t . -q"

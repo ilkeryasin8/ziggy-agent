@@ -35,7 +35,7 @@ instead of spending more. The plan lives in the pipeline's state (`runs/<id>/inb
 A stage reports through a result file (`$PIPELINE_RESULT_FILE`): a `verdict` (`READY`, `NEEDS_USER` or `FAILED`), a
 summary, questions, an optional route and stage-specific fields (risk and size, findings, the reviewer's guide,
 evidence). A stage that leaves no valid result fails; a missing result is never a silent pass. Fields and validation:
-`ziggy/results.py` and [pipelines/README.md](../pipelines/README.md).
+`ziggy/results.py` and [ziggy/pipelines/README.md](../ziggy/pipelines/README.md).
 
 ## Quick start
 
@@ -44,7 +44,7 @@ evidence). A stage that leaves no valid result fails; a missing result is never 
 | Needed | For |
 |---|---|
 | macOS | the Claude Code sandbox, `sandbox-exec` for engine checks, launchd for the panel, notifications |
-| `python3.12` | the CLI (standard library only); `bin/ziggy` runs from the checkout, no install |
+| Python 3.12+ | the CLI (standard library only); installed with `pipx`, or `bin/ziggy` from a checkout |
 | `claude` (Claude Code CLI, logged in) | every stage, chat, retro, roadmap draft and onboarding session (`ZIGGY_CLAUDE` overrides the binary) |
 | `git` | worktrees, branches |
 | `gh` (logged in to the account that opens PRs) | `publish`, PR sync and feedback, `project new`, open PRs |
@@ -55,11 +55,16 @@ evidence). A stage that leaves no valid result fails; a missing result is never 
 ### Install
 
 ```bash
-git clone <this repository> ziggy && cd ziggy
-ln -s "$PWD/bin/ziggy" ~/.local/bin/ziggy
-mkdir -p ~/.config/ziggy && cp config.example.toml ~/.config/ziggy/config.toml   # then edit
+pipx install git+https://github.com/ilkeryasin8/ziggy-agent.git   # or, from a clone: pipx install .
+ziggy doctor                  # Python, git, Claude Code (2.1.90+), gh login, sandbox-exec, config, state; exits 1 on a problem
+ziggy target add ~/src/your-repo --verify   # writes ~/.config/ziggy/config.toml (or copy config.example.toml there)
 ziggy ui --install            # the panel on http://127.0.0.1:8787/, kept running by launchd
 ```
+
+A clone runs without installing: `bin/ziggy` (link it onto your `PATH` if you like). `ziggy --version` prints the
+version; the launchd service and the panel's background jobs start the same Ziggy that installed them (`bin/ziggy` in
+a clone, `python -m ziggy` when installed). `pip install ".[slack]"` adds `slack_sdk` for `ziggy listen`; without it,
+listen re-runs itself under `uv` with it.
 
 The config path is `~/.config/ziggy/config.toml` (`$XDG_CONFIG_HOME` honoured), or `ZIGGY_CONFIG`.
 Never commit the real file; it names your repositories.
@@ -130,8 +135,12 @@ memory), 3 waiting for you (questions or the approval gate), 1 the run failed, 2
 ## The panel
 
 `ziggy ui` serves the panel on `http://127.0.0.1:8787/` for every configured target (`--port`, `--open`;
-`--install`/`--uninstall` for launchd, logs in `~/.local/state/ziggy/ui.{out,err}.log`). The panel is in
-Turkish. It runs the same commands as the terminal: buttons start `ziggy <command>` as detached jobs
+`--install`/`--uninstall` for launchd, logs in `~/.local/state/ziggy/ui.{out,err}.log`). The panel speaks English or
+Turkish: it follows the browser's language and remembers the "EN · TR" switch at the bottom of the sidebar
+(`web/i18n.js`; the code's texts are Turkish keys with English in `web/i18n/*.en.js`, and `tests/test_i18n.py` fails
+on a text left untranslated). Texts the server builds go through the same dictionaries, with patterns for their
+variable parts; a failed run's time report ("zaman aşımı (45 dk): …") is assembled from too many pieces and may keep
+Turkish words in English. The quick guide below names the Turkish labels. It runs the same commands as the terminal: buttons start `ziggy <command>` as detached jobs
 (`runs/<id>/jobs/`), so a run outlives a panel restart.
 
 The panel is built to stay open: a sidebar with the pages, their counts, "Yeni ticket" (N, or ⌘K for the command bar),
@@ -146,12 +155,14 @@ out for the desktop.
 | "Ticket'lar" | every ticket, status tabs, search and project filter, "Temizlik" (worktrees of merged or closed PRs) |
 | "Projeler" | the targets as cards (open tickets, cost, sessions, run slots), "Mevcut repoyu ekle", "Sıfırdan yeni proje"; a project's page: its roadmap ("Yol haritası", see Roadmap), `docs/PROJECT.md` on the base branch, "Tip öner", "Açık PR'lar", its tickets |
 | "Oturumlar" | the other Claude Code sessions on this machine (desktop, terminal, VS Code, headless): open or recently ended, the resume command, the transcript |
-| "İstatistik" | cost today, 7 and 30 days, total; "Teslim" (merged PRs per project over 30 days: how many, the share merged without a change request after the PR opened, change rounds per PR, quota per PR); daily cost by stage; cost per project; per-stage cost and averages; models; outcomes; most expensive tickets |
+| "İstatistik" | cost today, 7 and 30 days, total; "Teslim" (merged PRs per project over 30 days: how many, the share merged without a change request after the PR opened, change rounds per PR, quota per PR); daily cost by stage; cost per project; per-stage cost and averages; models; outcomes; most expensive tickets; "Haftalık rapor" (the latest weekly report) |
 | "Hafıza" | the project memory per target: proposed entries and roadmap changes to approve, edit or reject, the rules, decisions, pitfalls and episodes with their use counts, "Unutalım mı?" on faded ones (see Project memory) |
 | ticket page | `#ticket/<target>/<id>`: the ticket's head and stage bar, "Sıradaki hamle senin" when it waits on you, the tabs, the chat beside them |
 
 The board on "Komuta" has five groups, each card with its next step first (j/k move, Enter takes the step); the first
-card waiting on you is drawn lime:
+card waiting on you is drawn lime. Cards and ticket rows carry the plan's risk when it is not low and "büyük" for a
+large change; among equally urgent items the riskier ticket comes first (`attention.triage_weight`), and "Review'a
+hazır" lists the riskiest done ticket first:
 
 | Group | Holds |
 |---|---|
@@ -180,10 +191,10 @@ strict Content-Security-Policy. Nothing on it marks a PR ready, approves or merg
 after you agreed; `--read-only` leaves them out. Nothing merges.
 
 ```sh
-claude mcp add --scope user ziggy -- /path/to/ziggy/bin/ziggy mcp
-claude mcp add --scope user ziggy-ro -- /path/to/ziggy/bin/ziggy mcp --read-only
+claude mcp add --scope user ziggy -- "$(command -v ziggy)" mcp     # or /path/to/clone/bin/ziggy
+claude mcp add --scope user ziggy-ro -- "$(command -v ziggy)" mcp --read-only
 # a second Claude account:
-CLAUDE_CONFIG_DIR=~/.claude-work claude mcp add --scope user ziggy -- /path/to/ziggy/bin/ziggy mcp
+CLAUDE_CONFIG_DIR=~/.claude-work claude mcp add --scope user ziggy -- "$(command -v ziggy)" mcp
 ```
 
 ## CLI reference
@@ -222,6 +233,9 @@ of the target is busy. `<command> --help` lists each command's flags.
 | `talk new\|send\|list\|stop\|delete` | Sohbet: free chats about the target, read-only or in a worktree of their own (`new --write`; `send <id> --text`, `--model`; `delete <id> --force`) |
 | `inbox` | what needs you across every target (`--all`, `--seen`, `--json`) |
 | `stats` | cost (today, 7 and 30 days, per project) and delivery: merged PRs over 30 days, share without change requests, change rounds and quota per PR (`--json`) |
+| `report` | the weekly report as Markdown, up to yesterday (`--save`: also to `<state>/reports/`) |
+| `issues sync` | labelled GitHub issues → tickets `gh-<n>` (`--dry-run`; see GitHub issues) |
+| `eval list\|validate\|run\|show\|compare` | the fixed tasks with hidden tests (see Measuring changes) |
 | `sessions` | other Claude Code sessions on this machine (`--all`, `--json`) |
 
 **Shipping and GitHub**
@@ -265,6 +279,12 @@ closes the round, appends it to `runs/<id>/answers.md` and the plan's `## Decisi
 the pipeline names. After `max_rounds` (5) rounds the run fails. On the panel, "Yardım iste" on a question round opens
 the chat about it.
 
+A target's `answer_after` (a duration, e.g. `"4h"`; unset by default) lets a round that waited that long go on with
+its recommendations: the panel's minute tick answers it (`by` "ziggy", `via` "timeout", the text says so) and starts
+the run, and the question card says when ("Cevap gelmezse 15:05'te önerilenlerle devam eder"). Only when every
+question has a recommendation; never for an intent gap or a last visit's settling, and never in controlled mode
+(the key is ignored there with a warning).
+
 The approval gate stops a run as `awaiting-approval` after a gated stage when the highest reported risk or size reaches
 the pipeline's threshold, or always with `--plan-checkpoint` ("Plan onayı iste"). Risk and size are never lowered once
 reported. The approval card has "Onayla → devam" (`approve`), "Değişiklik iste" (`answer`: your text becomes a decision
@@ -278,7 +298,12 @@ disposition: a real problem the change introduced, in scope and cheap to fix, is
 or costly is `defer` (to `inbox/deferred.md`); `dismiss` only for a finding that is wrong, with evidence. The engine
 enforces the route: a `READY` review with an open `fix` finding goes back to implement; on the last round, open
 non-important findings are deferred and the review converges. A candidate becomes a finding only after a verification
-pass confirmed it; low-confidence ones are listed as unverified. Round 2 and later read only what changed since the last
+pass confirmed it; low-confidence ones are listed as unverified. The engine holds the bar too: an open `fix` finding
+without `evidence`, whose location and evidence name no file, or with a confidence under 0.6 is moved to unverified
+(`results.hold_unproven`) and never sent back; a review whose every fix was held converges. A branch that changed
+manifests or lockfiles (`package.json`, `pyproject.toml`, `go.mod`, `Cargo.toml`, `Podfile`, … and their locks) gets a
+dependencies step in the review prompt: each added or re-versioned dependency is needed, the real package from the usual
+registry, pinned like the others, and its lockfile changed with it. Round 2 and later read only what changed since the last
 reviewed HEAD plus the previous open findings (`--full-review` reads the whole branch). On its last allowed visit the
 review may put the open important findings to you instead of failing at the cap; your answer grants one more implement
 and review visit. Dismissed findings stay visible ("Review N bulguyu eledi") and are listed in the PR draft. Details:
@@ -287,12 +312,46 @@ and review visit. Dismissed findings stay visible ("Review N bulguyu eledi") and
 ### Engine checks
 
 After implement reports `READY`, the engine runs the target's `[[targets.<name>.checks]]` (`name`, `run`, `timeout`,
-default 10 minutes) in the worktree, in order, stopping at the first failure. A failure sends the work back to implement
+default 10 minutes) in the worktree, in order, stopping at the first failure that is not pre-existing (below). A failure sends the work back to implement
 with the output in `checks.log`. Checks run code the agent wrote outside Claude's sandbox, so each runs under macOS
 `sandbox-exec` with a generated profile: no network but localhost, writes only in the worktree, the temp directories,
 `/dev` and the target's state directory. Without `sandbox-exec` a check fails; it never runs unsandboxed. Untracked
 files a check leaves behind are deleted and named as a warning; changed tracked files fail it. Prompts get the check
 commands and their latest results, so implement runs only targeted tests and review does not rerun the suite.
+
+A check that fails on a branch that changed something is run once more on the run's base commit (`checks.at_base`: the tracked files as the base has
+them for the duration, the index untouched, the branch's files back afterwards). Failing there too, it is
+**pre-existing**: marked in the result and on the panel (amber, "(önceden)"), not sent back, and the next checks still
+run; the base's status is remembered per run (`run.baselines`). Passing there, the change broke it and it goes back.
+
+A `fix` proves itself (`regression = true` on its implement stage): after the checks pass, the `regressionTest`
+(`path`, `run`) the implementer reports must pass on the branch and fail on the code from before the implement with
+only that test file taken from the branch. A missing one, or one that passes without the fix (it does not reproduce
+the bug), goes back to implement like a failed check.
+
+`[targets.<name>.screens]` adds screenshots once an implement's checks pass: `pages` (paths, required), `url`
+(default `http://127.0.0.1:{port}`), `start` (the app's server command, run in the background), `wait` (60 s for the
+app to answer), `sizes` (default `[[1440, 900], [390, 844]]`) and `browser`. Inside the checks' sandbox the engine
+starts the app, waits for `url`, and takes each page at each size with a headless Chromium; the images are the
+implement's evidence (`inbox/artifacts/screens/`, on the review page) and the step is a check named `screens`: a page
+that cannot be taken goes back to implement. The browser is `browser`, `$ZIGGY_BROWSER`, Playwright's
+`chrome-headless-shell` (`npx playwright install chromium-headless-shell`) or a Chromium on the `PATH`; Google Chrome
+itself does not start inside the macOS sandbox. No browser at all stops the run as an environment problem.
+
+On Linux the checks run under bubblewrap (`bwrap`, `checks.bwrap_argv`) instead of `sandbox-exec`: the filesystem
+read-only except the worktree, the target's state directory and `/tmp`; a network namespace of its own (its own
+loopback: unlike on macOS, a database listening on the host's `localhost` is out of reach); the credential directories
+under an empty tmpfs and the credential files replaced by an unreadable one. The `check_sandbox` presets are macOS
+rules and do nothing there. bwrap needs unprivileged user namespaces (on Ubuntu 24.04:
+`sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0`, or an AppArmor profile for it); a check that cannot
+start them fails as an environment problem, not a code one. `ziggy doctor` names the backend it found.
+
+`best_of` (`"off"` by default, `"risky"`: the plan rated the ticket high risk or large, or `"always"`) gives the first
+implement of a fresh branch a second attempt: once the first attempt's checks have run, the branch goes back to where
+it started and a new session does the same step; its checks run too, and the better attempt stays (fewer failing
+checks that send work back, then READY, then the smaller change). The other is saved as
+`attempts/best-of-<stage dir>.patch` and the choice is in `run.best_of`. It is one visit; it doubles that stage's
+cost. Never for a resumed session or a branch already published or stacked on.
 
 Toolchains that need more than that profile opt in per target with named presets, `check_sandbox = ["xcode"]` (an
 unknown name is a config error); targets without one get the profile unchanged. `xcode` adds exactly two rules: writes
@@ -333,7 +392,10 @@ each patch's status).
 
 "Değişiklikleri incele" shows the branch's diff (all changes, since one of your reviews or a pipeline review round, or
 one commit), with the pipeline's findings on their lines (class, severity, confidence, verified, disposition,
-implement's outcome). Press **+** on a line for a draft comment, or answer a finding with "Düzelt" / "Boşver";
+implement's outcome). Each file has a risk score (`changes.file_risk`: its open findings by severity, +6 for a file
+that runs in CI or steers agents, +4 for a dependency manifest or lockfile, up to +4 for the size; a test or
+generated file counts a quarter), shown as "risk N" / "riskli · N" with its reasons; "Risk sırası" lists the files
+by it instead of the tree ("Ağaç"), remembered per browser. "Görüldü" ticks stay per file content. Press **+** on a line for a draft comment, or answer a finding with "Düzelt" / "Boşver";
 "Açık önemlileri seç" and "Seçilenleri düzelt" send the last round's open important findings back. "Değişiklik iste"
 (`request-changes`) sends the drafts as a `## Review (user, round N)` section of the plan and starts a new run.
 "Reviewer rehberi" is the latest review's per-file guide; "Kanıt" lists the screenshots, recordings and logs the stages
@@ -344,6 +406,38 @@ both editable); "Push et, draft PR aç" runs `publish --title … --body-file -`
 branch and a title, body or commit with a `Co-Authored-By` line, pushes one branch, opens the PR as a draft, and reuses
 an open PR for the branch.
 
+### Codex as a stage agent
+
+`codex_stages` (a list of stage ids, e.g. `["review"]`) runs those stages with `codex exec` instead of Claude Code:
+the same prompt on stdin and the same result file, in Codex's own sandbox (`--sandbox workspace-write`: writes in the
+worktree and, through `--add-dir`, the ticket's inbox; no network), your Codex config and rules left out
+(`--ignore-user-config`), the environment scrubbed but for `OPENAI_API_KEY`/`CODEX_API_KEY`, and `codex_model` as
+its model when set. Stop, nudge and the stage's timeout work as for Claude; a Codex stage is never resumed (each
+attempt is a fresh session) and reports tokens (`codex_usage`), not cost. The engine judges it as any stage: a
+read-only stage that changes the repository fails, its checks and routes are the same.
+
+### GitHub issues
+
+With `issue_label` (and `github_repo`, `gh_user`), the target's open GitHub issues carrying that label become tickets
+`gh-<n>`, once each, on the panel's PR sync (every 3 minutes) or with `ziggy issues sync` (`--dry-run` lists them).
+The type comes from the labels (`bug`/`fix`/`regression` → fix, `docs`/`documentation` → docs, `refactor`, `chore`/
+`maintenance`/`dependencies` → chore, else feat); the body is the issue's, with a line linking back. `issue_run = true`
+starts each new one at once. Their PR bodies end with `Closes #<n>`, so GitHub closes the issue when the PR merges;
+Ziggy writes nothing on the issue itself.
+
+### Measuring changes: `ziggy eval`
+
+`ziggy eval` runs Ziggy on 15 small fixed tasks (`ziggy/evals/tasks/`: Python bug fixes and features, each with a seed
+repository, visible tests, **hidden** tests the agents never see, and a reference solution) so a change to the engine,
+a prompt or a model is measured rather than guessed. `eval run [ids…] [--label X] [--plan-model M] [--build-model M]`
+gives each task a throwaway repository with a local origin and its own config and state (yours are not read or
+written), runs the ticket with real Claude Code sessions (it costs quota) as `run --now` (the machine-memory and
+usage-limit holds do not park it), answers question rounds with their recommendations and passes the approval gate, then runs the hidden tests on the branch under the checks' sandbox.
+Results (pass, status, cost, time, sessions, implement visits, review rounds, interventions) go to
+`~/.local/state/ziggy/evals/<run>/results.json`; `eval show [run]` prints them, `eval compare A B` puts two runs side
+by side (`latest`, a name, a prefix or a path). `eval validate` checks the tasks themselves: visible tests pass on the
+seed, hidden tests fail there and pass with the solution. `eval list` lists them.
+
 ### Codex review and open PRs
 
 `review <id>` (**Codex review**) runs `codex review --base <remote>/<base>` in the worktree, in Codex's read-only
@@ -352,6 +446,10 @@ findings you kept into a `## Review (codex, round N)` section and a new run. The
 open PRs (`prs`); any PR not opened by the pipeline can be adopted (`adopt <n>`) as ticket `pr-<n>` on a local branch at
 the PR's head, reviewed and fixed, then pushed back to the PR's own branch with "PR'a gönder": fast-forward only, never
 to a fork, and to someone else's PR only after a confirm (`publish --foreign-ok`).
+
+`codex_review` (per target) starts the Codex review on its own when a run ends done: `"off"` (default), `"risky"` (the
+plan rated the ticket high risk or large) or `"always"`. It runs as a background job like the panel's button and needs
+`codex` on the `PATH`; the findings wait on the review page.
 
 ### GitHub feedback loop
 
@@ -397,7 +495,11 @@ the plan's expected files) or whose topics appear in the ticket, and for plan-ty
 list the ids they relied on in `memoryUsed` (review findings may cite one in `memory`); the counts go to
 `<target>/memory/usage.json` and the ticket page shows what each session saw and used. Decisions, pitfalls and
 episodes unused for 60 days are marked faded ("soluk") with "Unutalım mı?"; nothing is removed automatically
-("Unut" / `memory forget` sets `Durum: unutuldu`).
+("Unut" / `memory forget` sets `Durum: unutuldu`). Each entry also learns how the tickets that used it ended
+(`usage.json` `outcomes`): "clean" when the PR merged with no change asked, "rework" once a person or GitHub asked for
+changes. An entry most of whose tickets (at least 3, two thirds) needed changes and none merged clean, or a decision,
+pitfall or episode unused for 120 days, is suggested for pruning ("budanabilir" on the panel; `ziggy memory prune`
+lists them, `--apply` forgets them).
 
 Migration runs once per target: the old per-target `context.md` in the config directory minus its learned-rules section becomes the memory
 `context.md`, each learned rule a `rules.md` entry, pending and rejected old rule candidates memory candidates; the old
@@ -555,7 +657,9 @@ by losing its process without a result says where its time went, first in the fa
 sürenin 34 dk’sı (%76) en yavaş 3 komutu beklerken geçti (grep -ril … 25 dk, …); bellek baskısı kritikti" (its
 `run.json` keeps `time_report` and the slowest `tool_calls`). A ticket whose process is gone gets a "lost" card.
 `resume` ("Kaldığı yerden devam") continues a killed, crashed or timed-out session; a failed card also offers
-"Aşamayı tekrar koştur" and "Yön değiştir".
+"Aşamayı tekrar koştur" and "Yön değiştir". A writing stage that resumes (after a retry, a quota wait, a nudge or
+`resume`) gets PLAN's `## Goal & acceptance` and its open tasks again ahead of the stage's instruction
+(`plan.reminder`), so a long session does not lose the bar for done with its context.
 
 ### Ticket chat
 
@@ -603,7 +707,11 @@ ziggy talk list | stop <id> | delete <id> [--force]
 - **Slack** (optional): `listen` serves one private channel over Socket Mode. `bmad: [!plan] [<type>:] <title>` makes
   ticket `sl-<n>` and runs it; thread replies `approve`, `retry`, `nudge: <message>`, or anything else as the answer to
   open questions. Only the configured member's messages act. Tokens come from `[slack] app_token_cmd`/`bot_token_cmd`
-  at start and stay in memory. The Slack app manifest is below.
+  at start and stay in memory. The Slack app manifest is below. With `[slack] forward = true` the listener also
+  follows the target's other tickets (panel, CLI, issues): every 30 s it posts their new questions (with options and
+  the recommendation), plan approvals, failures, lost runs and protected-file patches to the channel, one thread per
+  ticket (`slack-threads.json`), and the same replies (`approve`, `retry`, `nudge:`, an answer) act on them. Such a
+  ticket is not published from Slack when it is done; its draft PR stays a click on the panel (or `publish`).
 
 ### Inbox and notifications
 
@@ -611,7 +719,16 @@ Every needs-you item is one row in a ledger shared by all targets (`~/.local/sta
 engine adds rows as it saves state, the panel reconciles every 60 s. "Gelen kutusu" and `inbox` list them; opening a
 ticket marks its items read. A new row is a macOS notification (sent by the wrapper, never from inside a session), at
 most one per `[notifications] min_interval` (30 s), the rest summed up; `[notifications] enabled` and `events` choose
-what is sent.
+what is sent, `language` (`en` or `tr`; the system locale's by default) the language notifications and the weekly report are
+written in. `digest_every` (off by default) splits them in two tiers: the `urgent` kinds (question, approval, failed,
+lost, error, quota, protected) still notify at once, the rest are collected and shown as one "Özet · N öğe" notification
+naming the first three, once that long has passed since the first (at most 50 kept, the rest counted).
+
+The weekly report (`ziggy/weekly.py`) covers the seven days before a Monday: tickets done, PRs merged and runs failed,
+cost and sessions, the delivery numbers, what waits on you and what the project memory has to decide. The panel's
+minute tick writes it on Monday from 09:00 (or the first tick after) to `~/.local/state/ziggy/reports/<YYYY>-W<ww>.md`,
+once, with a notification of kind `report`; "İstatistik" shows the latest under "Haftalık rapor" (this week so far
+before the first one); `ziggy report` prints it up to yesterday (`--save` writes it).
 
 ### Worktree lifecycle
 
@@ -635,7 +752,11 @@ helper sessions whose working directory name starts with a prefix in `[sessions]
 
 Every session records its cost, turns and tokens in its `run.json`; "İstatistik" adds them up (retro sessions as stage
 `retro`, lead sessions as `lead`, onboarding sessions as `onboard`, roadmap drafts as `roadmap`). A target's
-`budget_usd` caps each session with `claude --max-budget-usd`. "Teslim" (and `ziggy stats`) counts the last 30 days'
+`budget_usd` caps each session with `claude --max-budget-usd`. Two caps are checked before every stage starts
+(`ziggy/budget.py`, costs as the sessions report them): `ticket_budget_usd`, all of one ticket's sessions — over it
+the run fails between stages with the numbers, and `ziggy run <id> --now` goes on; `daily_budget_usd`, the target's
+sessions that started today — over it a ticket waits as `budget` ("Günlük bütçe doldu" on the board, "Şimdi
+başlat" goes on now) and the panel's tick starts it the next day. "Teslim" (and `ziggy stats`) counts the last 30 days'
 merged PRs per project and overall: the share merged without a change round after the PR opened (no review-page or
 GitHub feedback round), change rounds per PR, and the sessions' cost per merged PR, labelled "kota" for a Claude
 subscription login (its sessions report rate limits): no dollars are paid there, the figure is the quota used at API
@@ -650,12 +771,26 @@ Layers, from [docs/how-it-works.md](how-it-works.md) "Safety layers":
   databases), no unsandboxed fallback, writes limited to the worktree and the inbox (`--add-dir`), deny rules for
   `git push`, `gh`, `curl`, package installs, `.env*` reads and more, no reads of the owner's notes and home folders
   (`~/Documents`, `~/Desktop`, `~/Downloads`, iCloud Drive) or of Claude Code's per-project data
-  (`~/.claude/projects`, `~/.claude-*/projects`: project knowledge comes from Ziggy's memory), and no attribution
-  trailers.
+  (`~/.claude/projects`, `~/.claude-*/projects`: project knowledge comes from Ziggy's memory), no reads of other
+  tools' credentials (`~/.aws`, `~/.kube`, `~/.docker`, `~/.gnupg`, `~/.netrc`, `~/.codex`, the keychain, browser
+  profiles, any `.env`/`.npmrc`/`.pypirc`; verified to stop even a Python `open()` from Bash), and no attribution
+  trailers. Ziggy refuses to start a session on a Claude Code older than 2.1.90 (earlier sandbox network bypasses).
+- **No credentials in the environment.** Sessions, checks and the Codex review get the environment without variables
+  whose names look like credentials (`*TOKEN*`, `*SECRET*`, `*API_KEY*`, `AWS_*`, `GH_*`, …); the target's own `[env]`
+  entries stay, Claude's own login only reaches claude sessions. `prepare` keeps the full environment (private
+  registries) and runs outside the sandbox.
+- **Guarded pushes.** Before any push (`publish`, an adopted PR, `restack --push`) the branch and its PR text are
+  checked for files that run in CI or steer agents (workflows and other CI configs, `AGENTS.md`/`CLAUDE.md` anywhere,
+  editor-agent rules, devcontainers, MCP configs, `.claude/`, git hooks, install-time `package.json` scripts),
+  credentials (in added lines, commit messages, the PR text) and invisible Unicode. Findings stop the push until you
+  approve them (the panel asks; `publish --accept-findings`); approval holds for those findings, a new one asks
+  again, so an automatic push after a feedback round never carries one unseen. PR text and posted Codex reviews always
+  go out with invisible characters dropped and images turned into links (an image URL is fetched when the PR is
+  viewed).
 - **No network in runs.** Dependencies must be in place after `prepare`; runs cannot install packages.
 - **Target hooks off.** `disableAllHooks`; `--setting-sources project` keeps user settings out.
 - **Tools denied.** Always `AskUserQuestion`, `ScheduleWakeup`, `CronCreate`, plus each stage's deny list.
-- **pre-push hook.** `githooks/pre-push` rejects any push while `ZIGGY_RUN` is set; sessions get it through
+- **pre-push hook.** `ziggy/githooks/pre-push` rejects any push while `ZIGGY_RUN` is set; sessions get it through
   `GIT_CONFIG_*` environment variables, so the target's `.git/config` is never edited.
 - **Wrapper-only push.** Sessions never push; the wrapper does, with the run-only environment removed: `publish` (also
   run after a GitHub feedback round; one ticket branch, never a protected or base branch), `restack --push`, the
@@ -690,8 +825,9 @@ the `sandbox-exec` profile of engine checks.
 | `max_active` | runs at once per target (default 2) |
 
 Other target keys: `mode` (`personal` or `controlled`, see Controlled mode), `router_model`, `retro`, `retro_model`,
+`codex_review` (see Codex review),
 `roadmap_model`, `lead_model`, `lead_issue_label` (see The lead), `memory_dir`, `memory_budget` (4096 bytes), `timeout`
-(5400 s), `quiet_after` (900 s), `stall_after` (10 m), `budget_usd`, `preserve`, `teardown`, `ports`, `pr_feedback_bots`,
+(5400 s), `quiet_after` (900 s), `stall_after` (10 m), `budget_usd`, `ticket_budget_usd`, `daily_budget_usd`, `issue_label`, `issue_run`, `best_of`, `codex_stages`, `codex_model`, `preserve`, `teardown`, `ports`, `pr_feedback_bots`,
 `pr_replies`. Other tables: `[notifications]`, `[chat]`, `[lead]` (`at`, `enabled`), `[host]` (`enabled`, `swap_hold`;
 see A busy machine), `[memory]` (`vault`,
 `projects_map`; see Project memory), `[onboard]` (gh accounts and Claude logins by path, `onboard_model`),
@@ -730,7 +866,9 @@ point `[slack]` at both tokens.
 
 | Path | What |
 |---|---|
-| `bin/ziggy` | entry point; runs from the checkout with `python3.12` |
+| `bin/ziggy` | entry point from a checkout (no install); `pyproject.toml` makes the `ziggy` command of an install |
+| `ziggy/__init__.py`, `__main__.py` | the version; `python -m ziggy` |
+| `ziggy/doctor.py` | `ziggy doctor`: the machine's prerequisites |
 | `ziggy/cli.py` | argument parsing and every command |
 | `ziggy/config.py` | loads and validates the personal config |
 | `ziggy/ticket.py` | ticket contract (`ticket.json`, `ticket.md`), types, branch naming |
@@ -768,12 +906,12 @@ point `[slack]` at both tokens.
 | `ziggy/onboard.py`, `onboard_verify.py`, `onboard_agent.py` | `target add`: proposal, verification in a throwaway clone, agent session and AGENTS.md draft PR |
 | `ziggy/listener.py`, `slack_socket.py` | Slack intake and its Socket Mode transport (the only `slack_sdk` import) |
 | `ziggy/dashboard.py`, `ziggy/web/` | the panel: standard-library HTTP server and the static page (`app.js`, `review.js`, `chat.js`, `sessions.js`, `md.js`) |
-| `pipelines/` | one TOML file per pipeline; format in [pipelines/README.md](../pipelines/README.md) |
-| `prompts/` | stage prompts, shared partials (`_*.md`), personas (`roles/`), review lenses (`lenses/`), the retro, roadmap draft, lead and onboarding prompts |
-| `claude-settings.json` | the settings every headless session gets |
-| `githooks/pre-push` | rejects pushes while `ZIGGY_RUN` is set |
+| `ziggy/pipelines/` | one TOML file per pipeline; format in [ziggy/pipelines/README.md](../ziggy/pipelines/README.md) |
+| `ziggy/prompts/` | stage prompts, shared partials (`_*.md`), personas (`roles/`), review lenses (`lenses/`), the retro, roadmap draft, lead and onboarding prompts |
+| `ziggy/claude-settings.json` | the settings every headless session gets |
+| `ziggy/githooks/pre-push` | rejects pushes while `ZIGGY_RUN` is set |
+| `ziggy/templates/` | `AGENTS.md`, `PROJECT.md` and `gitignore-base` for `project new` |
 | `config.example.toml` | template for the personal config |
-| `templates/` | `AGENTS.md`, `PROJECT.md` and `gitignore-base` for `project new` |
 | `skills/ziggy/` | the Claude Code skill |
 | `scripts/sandbox-smoke.sh`, `scripts/checks-sandbox-smoke.sh` | sandbox smoke tests (above) |
 | `scripts/bmad-setup.sh`, `_bmad-output/` | BMad Method for developing this repository: pinned setup (run it by hand, or from a SessionStart hook in your own `.claude/settings.local.json`), build records |

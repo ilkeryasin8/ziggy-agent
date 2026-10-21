@@ -5,6 +5,7 @@ the config's *_token_cmd (e.g. `op read ...`) at start and are kept in memory on
 """
 import subprocess
 import threading
+import time
 
 from slack_sdk.socket_mode import SocketModeClient
 from slack_sdk.socket_mode.request import SocketModeRequest
@@ -36,6 +37,20 @@ class WebAPI:
     def permalink(self, channel: str, ts: str) -> str | None:
         return self.client.chat_getPermalink(channel=channel, message_ts=ts).get("permalink")
 
+    def post_top(self, channel: str, text: str) -> str | None:
+        return self.client.chat_postMessage(channel=channel, text=text, unfurl_links=False).get("ts")
+
+
+def _forward_loop(listener) -> None:
+    """The other tickets' inbox items to the channel, every FORWARD_EVERY seconds (one failure never stops it)."""
+    from .listener import FORWARD_EVERY
+    while True:
+        try:
+            listener.forward()
+        except Exception as exc:  # noqa: BLE001
+            print(f"ziggy: forward failed: {exc}", flush=True)
+        time.sleep(FORWARD_EVERY)
+
 
 def listen(target: Target, cfg: SlackConfig) -> None:
     web = WebClient(token=_secret(cfg.bot_token_cmd, "bot token"))
@@ -51,6 +66,8 @@ def listen(target: Target, cfg: SlackConfig) -> None:
 
     client.socket_mode_request_listeners.append(on_request)
     threading.Thread(target=listener.serve_forever, name="bmad-worker", daemon=True).start()
+    if cfg.forward:
+        threading.Thread(target=_forward_loop, args=(listener,), name="slack-forward", daemon=True).start()
     client.connect()
     print(f"ziggy: listening as {identity.get('user')} in {cfg.channel} for {target.name}", flush=True)
     threading.Event().wait()

@@ -1,0 +1,15 @@
+title = "Add expiry (TTL) support to Cache"
+type = "feat"
+body = """
+`Cache` in `cache/store.py` keeps entries forever. Add time-to-live support.
+
+API:
+- `Cache(default_ttl=None, clock=time.monotonic)`: `clock` is a zero-argument callable returning seconds, injectable for tests. `default_ttl=None` means entries never expire.
+- `set(key, value, ttl=None)`: `ttl` overrides `default_ttl` for that entry. Setting an existing key replaces the value and restarts its lifetime. A ttl of zero or below raises `ValueError`.
+- An entry set at time t with ttl x is expired at any time >= t + x (the boundary itself counts as expired).
+- `get`, `in`, and `len` must only see live entries; an expired `get` returns the default.
+- `purge()` removes all expired entries and returns how many were removed.
+
+Existing no-argument use of `Cache()` must keep working.
+"""
+check = "python3 -m unittest discover -s hidden_tests -t . -q"

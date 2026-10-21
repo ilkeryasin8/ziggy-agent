@@ -25,6 +25,11 @@ class FakeSlack:
     def permalink(self, channel, ts):
         return f"https://slack.example.test/archives/{channel}/p{ts.replace('.', '')}"
 
+    def post_top(self, channel, text):
+        ts = f"9{len(self.posts):03d}.000"
+        self.posts.append((channel, ts, text))
+        return ts
+
     def texts(self, thread_ts):
         return [text for _, ts, text in self.posts if ts == thread_ts]
 
@@ -224,3 +229,40 @@ def test_failure_is_reported_and_retry_runs_again(env, slack, monkeypatch):
     lst.handle_event(*message("retry", "900.5", thread_ts="900.1"))
     lst.drain()
     assert api.texts("900.1")[-1].startswith("Draft PR: ")
+
+
+def forwarding(env):
+    from ziggy import attention, config
+    api = FakeSlack()
+    lst = listener_mod.Listener(load_target(), SlackConfig("true", "true", CHANNEL, USER, forward=True), api)
+    return lst, api, attention, config
+
+
+def test_forward_posts_other_tickets_questions_in_their_thread_and_replies_answer(env, monkeypatch):
+    from conftest import cli
+    script(env, {"plan": [QUESTION, {"verdict": "READY"}], "implement": [COMMIT]})
+    cli("new", "chore: pin the windows file")
+    assert cli("run", "local-1").returncode == 3  # waits for an answer, started from the CLI
+    lst, api, attention, config = forwarding(env)
+    attention.reconcile([config.load_target("demo")])
+    assert lst.forward() == ["local-1"]
+    [(channel, ts, text)] = api.posts
+    assert channel == CHANNEL and text.startswith("`local-1` pin the windows file · *Ajanın soruları var*")
+    assert "Windows dosyası da mı?" in text and "`approve`" in text
+    assert lst.forward() == []  # once per inbox row
+    lst.handle_event(*message("hayır, yalnız linux", "9100.000", thread_ts=ts))
+    lst.drain()
+    st = state_of(env, "local-1")
+    assert st["status"] == "done" and st["rounds"][0]["answer"] == "hayır, yalnız linux" and st["rounds"][0]["via"] == "slack"
+    assert any("Draft PR'ı panelden" in t for t in api.texts(ts))  # a panel ticket is not published from Slack
+    assert not gh_calls(env)
+
+
+def test_forward_is_off_by_default_and_skips_slack_tickets(env, slack):
+    lst, api = slack
+    assert lst.forward() == []
+    lst.handle_event(*message("bmad: !plan chore: bump pins", "1700.000"))
+    lst.drain()
+    on, api2, attention, config = forwarding(env)
+    attention.reconcile([config.load_target("demo")])
+    assert on.forward() == [] and api2.posts == []  # its own thread already says it

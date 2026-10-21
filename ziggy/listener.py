@@ -10,6 +10,10 @@ member's own messages in the configured channel act; bot messages, edits and del
     retry                                thread reply: run a failed ticket again (retries the stage it failed in)
     nudge: <message>                     thread reply: steer the running stage (it resumes its session with the message)
     <anything else>                      thread reply to a ticket with open questions: the answer
+
+With `[slack] forward`, the target's other tickets (panel, CLI, issues) are followed too: their questions, approvals
+and failures are posted to the channel, one thread per ticket (`slack-threads.json`), and the same replies work there.
+A ticket from the panel is not published from Slack when it is done: its draft PR stays your click, as on the panel.
 """
 import html
 import json
@@ -18,18 +22,21 @@ import re
 import threading
 from typing import Protocol
 
-from . import pipeline, publish, state, ticket
+from . import attention, pipeline, publish, state, ticket
 from .config import SlackConfig, Target
 
 COMMAND = re.compile(r"^\s*bmad:\s*(?P<rest>.*)$", re.I | re.S)
 NUDGE = re.compile(r"^\s*nudge:\s*(?P<text>.*)$", re.I | re.S)
 SEEN_LIMIT = 1000
+FORWARD = ("question", "approval", "failed", "lost", "protected")  # inbox kinds `forward` posts
+FORWARD_EVERY = 30  # seconds between looks at the inbox
 
 
 class SlackAPI(Protocol):
     def post(self, channel: str, thread_ts: str, text: str) -> None: ...
     def react(self, channel: str, ts: str, name: str) -> None: ...
     def permalink(self, channel: str, ts: str) -> str | None: ...
+    def post_top(self, channel: str, text: str) -> str | None: ...  # a new message; its ts (the thread to reply in)
 
 
 class CommandError(ValueError):
@@ -93,6 +100,8 @@ class Listener:
             self._seen = list(json.loads(self._seen_path.read_text()))
         except (OSError, ValueError):
             self._seen = []
+        self._threads_path = target.state_dir / "slack-threads.json"  # forwarded tickets: id -> their thread's ts
+        self._forwarded_path = target.state_dir / "slack-forwarded.json"  # inbox rows already posted
 
     # -- intake ------------------------------------------------------------------------------
 
@@ -148,7 +157,76 @@ class Listener:
             slack = state.load_ticket(self.target, ticket_id).get("slack") or {}
             if slack.get("channel") == self.cfg.channel and slack.get("thread_ts") == thread_ts:
                 return ticket_id
-        return None
+        return next((tid for tid, ts in self._threads().items() if ts == thread_ts), None)
+
+    def _threads(self) -> dict:
+        try:
+            data = json.loads(self._threads_path.read_text())
+        except (OSError, ValueError):
+            return {}
+        return data if isinstance(data, dict) else {}
+
+    def _thread_of(self, ticket_id: str) -> str | None:
+        slack = state.load_ticket(self.target, ticket_id).get("slack") or {}
+        if slack.get("channel") == self.cfg.channel and slack.get("thread_ts"):
+            return slack["thread_ts"]
+        return self._threads().get(ticket_id)
+
+    # -- forward (other tickets' inbox items) -----------------------------------------------
+
+    def forward(self) -> list[str]:
+        """Post the target's new questions, approvals and failures of tickets not started from Slack, each in its
+        ticket's thread (opened on the first one); returns the ticket ids posted for. Off unless `forward`."""
+        if not self.cfg.forward:
+            return []
+        try:
+            done = set(json.loads(self._forwarded_path.read_text()))
+        except (OSError, ValueError):
+            done = set()
+        posted = []
+        for row in reversed(attention.items([self.target])):  # oldest first
+            key = f"{row['ticket']}/{row['key']}/{row['created_at']}"
+            if row["kind"] not in FORWARD or key in done:
+                continue
+            ticket_id = row["ticket"]
+            try:
+                t = state.load_ticket(self.target, ticket_id)
+            except (OSError, ValueError, KeyError):
+                continue
+            if (t.get("slack") or {}).get("thread_ts"):
+                done.add(key)  # a Slack ticket: its own thread already says it
+                continue
+            text = self._forward_text(t, row)
+            thread = self._threads().get(ticket_id)
+            if thread:
+                self.api.post(self.cfg.channel, thread, text)
+            else:
+                ts = self.api.post_top(self.cfg.channel, text)
+                if ts:
+                    with self._lock:
+                        threads = self._threads()
+                        threads[ticket_id] = ts
+                        state.write_json(self._threads_path, threads)
+            done.add(key)
+            posted.append(ticket_id)
+        self._forwarded_path.parent.mkdir(parents=True, exist_ok=True)
+        state.write_json(self._forwarded_path, sorted(done)[-SEEN_LIMIT:])
+        return posted
+
+    def _forward_text(self, t: dict, row: dict) -> str:
+        st = state.load_state(self.target, t["id"])
+        head = f"`{t['id']}` {t.get('title') or ''} · *{attention.LABEL.get(row['kind'], row.get('title') or row['kind'])}*"
+        body = ""
+        if row["kind"] == "question":
+            round_ = pipeline.open_round(st)
+            body = questions_text(round_) if round_ else ""
+        elif row["kind"] == "approval":
+            gate = st.get("gate") or {}
+            body = f"{gate.get('stage') or '?'} sonrası: {gate.get('reason') or '-'}"
+        elif st.get("error"):
+            body = st["error"].split("\n")[0][:500]
+        hint = ("Bu thread'e yaz: cevabın, `approve`, `retry` ya da `nudge: <mesaj>`. Ayrıntı panelde.")
+        return "\n".join(x for x in (head, body, hint) if x)
 
     def _reply(self, thread_ts: str, text: str) -> None:
         ticket_id = self._ticket_for_thread(thread_ts)
@@ -201,7 +279,7 @@ class Listener:
             self.run_job(*self.jobs.get())
 
     def run_job(self, kind: str, ticket_id: str, text: str) -> None:
-        thread = state.load_ticket(self.target, ticket_id)["slack"]["thread_ts"]
+        thread = self._thread_of(ticket_id)
         say = lambda message: self.api.post(self.cfg.channel, thread, message)  # noqa: E731
         try:
             if kind == "answer":
@@ -222,7 +300,9 @@ class Listener:
     def _report(self, ticket_id: str, say) -> None:
         st = state.load_state(self.target, ticket_id)
         status = st["status"]
-        if status == "done":
+        if status == "done" and not (state.load_ticket(self.target, ticket_id).get("slack") or {}).get("thread_ts"):
+            say(f"Bitti. Draft PR'ı panelden ya da `ziggy publish {ticket_id}` ile aç.")
+        elif status == "done":
             try:
                 url = publish.publish(self.target, ticket_id)
             except publish.PublishError as exc:

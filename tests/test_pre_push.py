@@ -1,11 +1,11 @@
-"""Contract tests for the pipeline pre-push git hook (githooks/pre-push)."""
+"""Contract tests for the pipeline pre-push git hook (ziggy/githooks/pre-push)."""
 import os
 import subprocess
 from pathlib import Path
 
 import pytest
 
-HOOKS_DIR = Path(__file__).resolve().parents[1] / "githooks"
+HOOKS_DIR = Path(__file__).resolve().parents[1] / "ziggy" / "githooks"
 
 
 def git_env(env_value: str | None) -> dict[str, str]:

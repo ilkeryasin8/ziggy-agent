@@ -1,0 +1,15 @@
+title = "Let environment variables override config values"
+type = "feat"
+body = """
+Ops want to change settings per deployment without editing the JSON file. Extend `load_config` in `conf/config.py` with environment overrides.
+
+Signature: `load_config(path=None, env=None, prefix="APP_")`. `env` is a mapping; when `None`, use `os.environ`.
+
+Rules:
+- Applied after defaults and the file, so env wins over both.
+- A variable `APP_PORT` overrides key `port`; nested keys use a double underscore: `APP_DB__HOST` overrides `db.host`. The part after the prefix is lowercased.
+- Only keys that already exist in the config are overridden; unknown keys and variables without the prefix are ignored.
+- The string value is converted to the type of the value it replaces: bool accepts `1/true/yes/on` and `0/false/no/off` (case-insensitive) and anything else raises `ValueError`; int and float are parsed (invalid text raises `ValueError`); strings are kept as is.
+- The module-level `DEFAULTS` must not be modified by loading.
+"""
+check = "python3 -m unittest discover -s hidden_tests -t . -q"

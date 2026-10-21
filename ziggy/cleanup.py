@@ -140,6 +140,8 @@ def sync(target: Target) -> list[dict]:
         if pr["state"] == "MERGED":
             try:  # the merge goes on the ticket's episode (once); best effort, like the rest of the sync
                 memory.episode_merged(target, ticket_id, st.get("pr"))
+                if not any(u.get("source") in ("user", "github") for u in st.get("user_reviews") or []):
+                    memory.record_outcome(target, ticket_id, "clean")  # merged without a change asked
             except Exception as exc:  # noqa: BLE001 - a missed line never holds up archiving
                 print(f"{ticket_id}: merge not added to its episode: {exc}", file=sys.stderr)
             roadmap.ticket_changed(target, ticket_id)  # its roadmap item, if any, is merged (best effort)

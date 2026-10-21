@@ -17,7 +17,7 @@ from datetime import datetime
 from pathlib import Path
 from urllib.parse import quote
 
-from . import plan, results, state, worktree
+from . import guard, plan, results, state, worktree
 from .config import Target
 
 SHA = re.compile(r"^[0-9a-f]{7,64}$")
@@ -144,6 +144,37 @@ def is_image(path: str | None) -> bool:
 
 def is_generated(path: str) -> bool:
     return any(r.search(path) for r in GENERATED)
+
+
+TEST_FILE = re.compile(r"(^|/)(tests?|__tests__|specs?|e2e)/|(^|/)test_[^/]+$|_test\.\w+$|\.(test|spec)\.\w+$|Tests?\.swift$")
+SEVERITY_WEIGHT = {"critical": 8, "high": 5, "medium": 3, "low": 1}
+
+
+def file_risk(f: dict, findings: list[dict]) -> tuple[int, list[str]]:
+    """Where to look first, as (score, reasons): the file's open findings by severity, a file that runs in CI or steers
+    agents (guard.SENSITIVE), a dependency manifest or lockfile, the size of the change; a test or generated file counts
+    for a quarter."""
+    from .pipeline import DEPENDENCY_FILE  # the engine imports this module's callers, not this module
+    path, score, why = f["path"], 0, []
+    open_ = [x for x in findings if x.get("path") == path and x.get("latest") and not x.get("fixed")
+             and not x.get("dismissed") and x.get("disposition") not in ("dismiss", "defer")]
+    if open_:
+        score += sum(SEVERITY_WEIGHT.get(x.get("severity"), 3) for x in open_)
+        why.append(f"{len(open_)} açık bulgu")
+    if guard.sensitive(path):
+        score += 6
+        why.append("CI ya da ajan dosyası")
+    if DEPENDENCY_FILE.search(path):
+        score += 4
+        why.append("bağımlılık")
+    lines = (f.get("additions") or 0) + (f.get("deletions") or 0)
+    if lines >= 50:
+        score += min(lines // 50, 4)
+        why.append(f"{lines} satır")
+    if f.get("generated") or TEST_FILE.search(path):
+        score //= 4
+        why.append("üretilmiş" if f.get("generated") else "test")
+    return score, why
 
 
 def viewed_state(mark: str | None, new_blob: str | None) -> str:
@@ -807,6 +838,8 @@ def summary(target: Target, ticket_id: str, range_spec: str = "all", to: str | N
         out["error"] = str(exc)
     files = [f["path"] for f in out["files"]]
     out["findings"] = collect_findings(reviews, files, wt, records, review["comments"])
+    for f in out["files"]:
+        f["risk"], f["risk_why"] = file_risk(f, out["findings"])
     out["guide"] = guide_view(reviews, files, wt)
     return out
 

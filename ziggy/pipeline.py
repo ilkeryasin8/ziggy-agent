@@ -22,6 +22,7 @@ from contextlib import ExitStack, contextmanager
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
+from . import budget, screens
 from . import checks as engine_checks
 from . import bmad, dispatch, feedback, memory, pipelines, plan, protected, pulls, quota, render, results, roadmap, stack, state, worktree
 from . import config, host, stalls
@@ -30,6 +31,7 @@ from .ticket import LANGUAGES
 
 WAIT_FOR_SLOT = True  # the CLI's --no-wait turns it off: refuse instead of waiting in line
 IGNORE_QUOTA = False  # the CLI's run --now: start the first stage even while the account's limit is reached
+IGNORE_BUDGET = False  # the CLI's run --now: go on past the target's spending caps (budget.py)
 IGNORE_HOST = False  # the CLI's run --now too: start (and go on) even while the machine is short of memory
 SLOT_POLL = 3  # seconds between looks at the slots while waiting
 WAITING = ("needs-user", "awaiting-approval")
@@ -162,6 +164,26 @@ def _retro(target: Target, ticket_id: str) -> None:
         print(f"{ticket_id}: retro started in the background (job {job['id']})", file=sys.stderr)
 
 
+def _memory_outcome(target: Target, ticket_id: str, outcome: str) -> None:
+    """The ticket's outcome on the memory entries it used (best effort)."""
+    try:
+        memory.record_outcome(target, ticket_id, outcome)
+    except Exception as exc:  # noqa: BLE001 - a missed outcome never holds anything up
+        print(f"{ticket_id}: memory outcome not recorded: {exc}", file=sys.stderr)
+
+
+def _codex_review(target: Target, ticket_id: str, st: dict) -> None:
+    """A done ticket the target's `codex_review` picks gets the Codex second review in the background (best effort)."""
+    try:
+        from . import review  # review imports publish, which imports this module
+        job = review.schedule(target, ticket_id, st)
+    except Exception as exc:  # noqa: BLE001 - a second opinion missed is no reason to fail a finished run
+        print(f"{ticket_id}: Codex review not started: {exc}", file=sys.stderr)
+        return
+    if job:
+        print(f"{ticket_id}: Codex review started in the background (job {job['id']})", file=sys.stderr)
+
+
 def _memory_used(target: Target, ticket_id: str, result: dict) -> list[str]:
     """The memory ids the stage relied on (`memoryUsed`, review findings' `memory`), counted in usage.json (best
     effort: what was counted is also in run.json)."""
@@ -286,6 +308,42 @@ def open_round(st: dict) -> dict | None:
         if r.get("answer") is None:
             return r
     return None
+
+
+DEFAULT_ANSWER_BY = "ziggy"
+
+
+def default_answer_at(target: Target, st: dict) -> str | None:
+    """When the open question round gets answered with its recommendations on its own (the target's `answer_after`
+    after it was asked), or None: never in controlled mode, never for an intent gap or a last visit's settling (those
+    are yours), and only when every question carries a recommendation."""
+    if target.answer_after is None or target.mode == "controlled" or st.get("status") != "needs-user":
+        return None
+    r = open_round(st)
+    if not r or r.get("intent_gap") or r.get("adjudicate") or not r.get("questions") or not r.get("asked_at"):
+        return None
+    if not all(isinstance(q, dict) and q.get("recommendation") for q in r["questions"]):
+        return None
+    asked = datetime.fromisoformat(r["asked_at"].replace("Z", "+00:00"))
+    return (asked + timedelta(seconds=target.answer_after)).isoformat(timespec="seconds")
+
+
+def answer_by_default(target: Target, ticket_id: str) -> bool:
+    """Once default_answer_at has passed: close the open round with its recommendations (by "ziggy", via "timeout",
+    recorded like any answer); the caller continues the run. False when nothing is due or someone answered first."""
+    st = state.load_state(target, ticket_id)
+    due = default_answer_at(target, st)
+    if not due or datetime.fromisoformat(due) > datetime.now(timezone.utc):
+        return False
+    r = open_round(st)
+    text = "\n\n".join(f"{q.get('id') or f'Q{i + 1}'}: {q['recommendation']}" for i, q in enumerate(r["questions"]))
+    text += (f"\n\n(No answer came in {dispatch.fmt_duration(target.answer_after)}: Ziggy went with the "
+             "recommendations. A later change of course is still yours.)")
+    try:
+        answer(target, ticket_id, text, by=DEFAULT_ANSWER_BY, via="timeout", run_after=False, round_n=r["n"])
+    except PipelineError:  # answered (or stopped) meanwhile
+        return False
+    return True
 
 
 def _records(target: Target, ticket_id: str) -> list[tuple[Path, dict]]:
@@ -419,6 +477,34 @@ def _partials(target: Target, stage: pipelines.Stage):
     return load
 
 
+# Manifests and lockfiles: a change to one adds, removes or moves a dependency, which the review looks at as such.
+DEPENDENCY_FILE = re.compile(
+    r"(^|/)(package\.json|package-lock\.json|npm-shrinkwrap\.json|yarn\.lock|pnpm-lock\.yaml|bun\.lockb?|"
+    r"pyproject\.toml|uv\.lock|poetry\.lock|Pipfile(\.lock)?|requirements[\w.-]*\.(txt|in)|setup\.(py|cfg)|"
+    r"go\.(mod|sum)|Cargo\.(toml|lock)|Gemfile(\.lock)?|Podfile(\.lock)?|Package\.(swift|resolved)|"
+    r"build\.gradle(\.kts)?|gradle\.lockfile|libs\.versions\.toml|pom\.xml|composer\.(json|lock)|[^/]+\.csproj|"
+    r"packages\.lock\.json)$")
+
+
+def _dependency_changes(st: dict, wt: Path) -> list[dict]:
+    """The branch's changed manifests and lockfiles ({path, status}) since the run's base commit."""
+    base = (st.get("run") or {}).get("base_commit")
+    if not base:
+        return []
+    try:
+        out = worktree.git("diff", "--name-status", "--no-renames", base, "HEAD", cwd=wt).stdout
+    except (worktree.GitError, OSError):
+        return []
+    rows = [line.split("\t", 1) for line in out.splitlines() if "\t" in line]
+    return [{"path": path, "status": {"A": "added", "D": "deleted"}.get(code[:1], "modified")}
+            for code, path in rows if DEPENDENCY_FILE.search(path)]
+
+
+def _deps_context(st: dict, wt: Path) -> dict:
+    deps = _dependency_changes(st, wt)
+    return {"deps": deps, "has_deps": bool(deps)}
+
+
 def _files_in_play(st: dict, records: list[tuple[Path, dict]], wt: Path | None) -> list[str]:
     """The files a ticket's memory is matched against: the branch's changed files once something is built, else the
     latest plan's `filesExpected`."""
@@ -546,8 +632,10 @@ def _context(target: Target, ticket: dict, st: dict, pl: pipelines.Pipeline, sta
                 "adjudicated": (run.get("extra_visits") or {}).get(stage.id, 0) > 0},
         "user_review": user_review,
         "review": {**_review_context(target, ticket["id"], st, stage, records, wt, ticket_visit),
-                   "last_round": _last_review_round(run, pl, stage)} if stage.result == "review" else None,
+                   "last_round": _last_review_round(run, pl, stage), **_deps_context(st, wt)}
+        if stage.result == "review" else None,
         "engine_checks": _engine_checks(target, pl, records, wt),
+        "regression": stage.regression,
         "ports": {"base": int(ports["PIPELINE_PORT"]), "end": int(ports["PIPELINE_PORT_END"])}
         if ports.get("PIPELINE_PORT") and ports.get("PIPELINE_PORT_END") else None,
         "answers_markdown": plan.answers_markdown(answered),
@@ -639,10 +727,12 @@ def _run_stage(target: Target, ticket: dict, st: dict, pl: pipelines.Pipeline, b
     if pending:  # a person's message replaces the watchdog's
         nudge = pending
         _log_nudge(st, pending, stage.id, stage_dir, "prompt")
+    # A writing stage that resumes gets PLAN's goal and open tasks again: the context it lost is where it drifts.
+    reminder = plan.reminder(plan.read(inbox / "plan.md")) if resume and stage.writes else ""
     if resume and resume.get("reason") == "nudge" and nudge:
-        prompt = dispatch.nudge_resume_prompt(nudge, resume["prompt"])
+        prompt = dispatch.nudge_resume_prompt(nudge, resume["prompt"], reminder)
     elif resume:
-        prompt = dispatch.resume_prompt(resume["prompt"], nudge)
+        prompt = dispatch.resume_prompt(resume["prompt"], nudge, reminder)
     else:
         prompt = _prompt(target, pl, stage, ctx, nudge)
     (stage_dir / "prompt.md").write_text(prompt, encoding="utf-8")
@@ -666,12 +756,16 @@ def _run_stage(target: Target, ticket: dict, st: dict, pl: pipelines.Pipeline, b
            "PIPELINE_BASE_COMMIT": run.get("base_commit") or "", "PIPELINE_ARTIFACTS_DIR": ctx["paths"]["artifacts"],
            **_visit_env(ctx), **ports}
     try:
-        dispatch.run(target, ticket_id, wt, inbox, stage_dir, resume["model"] if resume else _model(target, stage), prompt,
-                     record=record, resume_session=resume["session_id"] if resume else None,
-                     timeout=stage.timeout, tools_deny=stage.tools_deny, effort=stage.effort,
-                     quiet_after=stage.quiet_after or target.quiet_after, interrupt_on_quiet=stage.retry.on_quiet,
-                     stall_after=target.stall_after,
-                     json_schema=results.json_schema(stage.result), extra_env=env)
+        if stage.id in target.codex_stages:  # Codex instead of Claude Code for this stage: a fresh session every time
+            dispatch.run_codex(target, ticket_id, wt, inbox, stage_dir, target.codex_model, prompt, record=record,
+                               timeout=stage.timeout, extra_env=env)
+        else:
+            dispatch.run(target, ticket_id, wt, inbox, stage_dir, resume["model"] if resume else _model(target, stage),
+                         prompt, record=record, resume_session=resume["session_id"] if resume else None,
+                         timeout=stage.timeout, tools_deny=stage.tools_deny, effort=stage.effort,
+                         quiet_after=stage.quiet_after or target.quiet_after, interrupt_on_quiet=stage.retry.on_quiet,
+                         stall_after=target.stall_after,
+                         json_schema=results.json_schema(stage.result), extra_env=env)
     except BaseException:
         _fail(st, f"{stage.id}: the session could not be run", stage.id)
         _settle(target, ticket_id, st)
@@ -921,6 +1015,100 @@ def _quota_hold(target: Target, ticket_id: str, st: dict, step: dict, force: boo
     return True
 
 
+# --- best of two ----------------------------------------------------------------------------------------
+
+BEST_OF_PATCH = "best-of-{}.patch"  # in ATTEMPTS: the attempt that lost
+
+
+def _best_of_wanted(target: Target, ticket: dict, st: dict, stage: pipelines.Stage, step: dict, run: dict) -> bool:
+    """A second implement attempt for this visit (`best_of`): the first visit of a fresh implement whose ticket the plan
+    rated high risk or large ("risky") or any ticket ("always"); never for a resumed session or a branch already out."""
+    if target.best_of == "off" or stage.result != "implement" or not stage.checks or step.get("resume") or step.get("checks_only"):
+        return False
+    if run["visits"].get(stage.id) != 1 or run.get("best_of") or published(ticket, st) or stack.stacked_branches(target, ticket["id"]):
+        return False
+    return target.best_of == "always" or st.get("risk") == "high" or st.get("size") == "large"
+
+
+def _changed_lines(wt: Path, base: str, head: str) -> int:
+    out = worktree.git("diff", "--numstat", f"{base}..{head}", cwd=wt).stdout
+    return sum(int(a) + int(d) for a, d, _ in (line.split("\t", 2) for line in out.splitlines()) if a.isdigit() and d.isdigit())
+
+
+def _best_of_two(target: Target, ticket: dict, st: dict, pl: pipelines.Pipeline, stage: pipelines.Stage, step: dict,
+                 wt: Path, inbox: Path, ports: dict, run: dict, first: dict, failed_first: dict | None,
+                 records: list) -> tuple[dict, dict | None, dict]:
+    """`best_of`: run the implement once more from where the first attempt started, in a fresh session, check it,
+    and keep the better one: fewer failing checks that send work back, then READY, then the smaller change. The other
+    attempt is saved as attempts/best-of-<stage dir>.patch. Returns (record, its blocking failure, its result)."""
+    if not _best_of_wanted(target, ticket, st, stage, step, run) or first["result"].get("verdict") != "READY":
+        return first, failed_first, first["result"]
+    ticket_id = ticket["id"]
+    base, head_a = first["head_before"], worktree.head(wt)
+    run["best_of"] = {"first": Path(first["dir"]).name}
+    print(f"{ticket_id}: best of two: a second {stage.id} attempt from {base[:9]}", file=sys.stderr, flush=True)
+    worktree.git("reset", "--keep", "--quiet", base, cwd=wt)
+    second = _run_stage(target, ticket, st, pl, stage, step, wt, inbox, ports)
+    records.append(second)
+    failed_second = None
+    ok = second["state"] == "ok" and second["result"].get("verdict") == "READY"
+    if ok:
+        if second["result"].get("route") == results.CHECKS_FAILED:
+            second["result"].pop("route")  # the engine's route, as for the first attempt
+        failed_second = _run_checks(target, ticket_id, wt, stage, Path(second["dir"]), second, ports, run)
+        ok = not (failed_second and failed_second.get("environment"))
+    head_b = worktree.head(wt)
+    score = lambda failed, head: (failed is not None, _changed_lines(wt, base, head))  # noqa: E731
+    pick_second = ok and score(failed_second, head_b) < score(failed_first, head_a)
+    winner, loser = (second, first) if pick_second else (first, second)
+    loser_head = head_a if pick_second else head_b
+    root = state.run_dir(target, ticket_id) / ATTEMPTS
+    root.mkdir(parents=True, exist_ok=True)
+    patch = root / BEST_OF_PATCH.format(Path(loser["dir"]).name)
+    diff = subprocess.run(["git", "diff", "--binary", f"{base}..{loser_head}"], cwd=wt, capture_output=True, check=True).stdout
+    patch.write_bytes(f"# ziggy: the {stage.id} attempt that lost the best of two ({Path(loser['dir']).name})\n".encode() + diff)
+    worktree.git("reset", "--keep", "--quiet", head_b if pick_second else head_a, cwd=wt)
+    why = ("second: " if pick_second else "first: ") + (
+        "fewer failing checks" if (failed_first is not None) != (failed_second is not None) and ok else
+        "the smaller change" if ok else f"the second attempt was not usable ({second['state']}, "
+                                       f"{(second.get('result') or {}).get('verdict') or '-'})")
+    run["best_of"].update(second=Path(second["dir"]).name, chosen=Path(winner["dir"]).name, why=why,
+                          patch=f"{ATTEMPTS}/{patch.name}")
+    winner["best_of"] = dict(run["best_of"])
+    state.write_json(Path(winner["dir"]) / "run.json", winner)
+    st["checks"] = winner.get("checks") or []
+    print(f"{ticket_id}: best of two: kept the {why}", file=sys.stderr, flush=True)
+    return winner, (failed_second if pick_second else failed_first), winner["result"]
+
+
+def _budget_hold(target: Target, ticket_id: str, st: dict, step: dict) -> bool:
+    """Admission: a stage is not started past the target's spending caps (budget.py). Over the ticket's cap the run
+    fails with the numbers; over the day's cap the ticket waits (status `budget`) and budget.wake starts it tomorrow.
+    run --now goes on, with a warning. Returns whether it stopped."""
+    hit = budget.over(target, ticket_id)
+    if not hit:
+        st.pop("budget", None)
+        return False
+    what = "this ticket" if hit["kind"] == "ticket" else "today"
+    if IGNORE_BUDGET:
+        print(f"{ticket_id}: warning: {what} has spent ${hit['spent']:.2f} of its ${hit['cap']:.2f} cap; going on (--now)",
+              file=sys.stderr, flush=True)
+        return False
+    if hit["kind"] == "ticket":
+        _fail(st, f"{step['stage']}: the ticket has spent ${hit['spent']:.2f} of its ${hit['cap']:.2f} budget "
+                  f"(ticket_budget_usd). Raise it, or go on with `ziggy run {ticket_id} --now`.", step["stage"])
+        _settle(target, ticket_id, st)
+        print(f"{ticket_id}: {st['error']}", file=sys.stderr, flush=True)
+        return True
+    budget.held(st, step, hit)
+    if st.get("run"):
+        st["run"]["outcome"] = budget.STATUS
+    _settle(target, ticket_id, st)
+    print(f"{ticket_id}: {target.name} has spent ${hit['spent']:.2f} of today's ${hit['cap']:.2f} (daily_budget_usd); "
+          f"{step['stage']} starts tomorrow (ziggy run {ticket_id} --now starts it anyway)", file=sys.stderr, flush=True)
+    return True
+
+
 def _host_hold(target: Target, ticket_id: str, st: dict, step: dict) -> bool:
     """Admission: a stage is not started while the machine is short of memory (host.busy: pressure critical, or swap
     at `[host] swap_hold` or more). The ticket waits with status `host` and `step` in `next`; host.wake starts it after
@@ -974,24 +1162,91 @@ def _quota_wait(target: Target, ticket_id: str, st: dict, record: dict, step: di
           f"{quota.clock(quota.epoch_of(st['quota']['resume_at']))}", file=sys.stderr, flush=True)
 
 
-def _run_checks(target: Target, ticket_id: str, wt: Path, stage_dir: Path, record: dict, ports: dict) -> dict | None:
-    """The target's checks after a READY implement; returns the first failure (or None). A tree left with
-    uncommitted changes fails first: the review diffs commits."""
+REGRESSION_TIMEOUT = 900  # seconds for each run of a fix's regression test
+
+
+def _blocking(outcome: dict) -> bool:
+    """A failure that sends the work back: not one the base branch has as well."""
+    return outcome["status"] != "pass" and not outcome.get("preexisting")
+
+
+def _run_checks(target: Target, ticket_id: str, wt: Path, stage: pipelines.Stage, stage_dir: Path, record: dict,
+                ports: dict, run: dict) -> dict | None:
+    """The target's checks after a READY implement, then (a `regression` stage) the fix's regression test; returns the
+    first failure that sends the work back (or None). A tree left with uncommitted changes fails first: the review
+    diffs commits. A check that fails is run once more on the run's base commit: failing there too, it is pre-existing
+    (marked, not sent back) and the next checks still run."""
     outcomes = []
     dirty = worktree.dirty_paths(wt)
     if dirty:
         outcomes.append({"name": "clean-tree", "status": "fail", "source": "engine", "exit_code": None, "duration_ms": 0,
                          "detail": "uncommitted changes: " + ", ".join(dirty[:20])})
-    elif target.checks:
-        env = dispatch.environment(target, ticket_id, wt, {
+    else:
+        env = dispatch.environment(target, ticket_id, wt, claude=False, extra={
             "PIPELINE_TICKET": ticket_id, "PIPELINE_WORKTREE": str(wt), "PIPELINE_VISIT": str(record["visit"]),
             "PIPELINE_LAST_VISIT": "1" if record.get("last_visit") else "0", **ports})
-        outcomes = engine_checks.run(target, ticket_id, wt, list(target.checks), stage_dir / "checks.log", env)
+        log = stage_dir / "checks.log"
+        # Nothing committed yet: there is no change to compare with the base, so a failure is simply not fixed yet.
+        base = run.get("base_commit") if run.get("base_commit") != worktree.head(wt) else None
+        baselines = run.setdefault("baselines", {})  # "<base>:<name>:<command>" → the check's status on that commit
+        for check in target.checks:
+            outcome = engine_checks.run(target, ticket_id, wt, [check], log, env)[0]
+            if outcome["status"] != "pass" and not outcome.get("environment") and base:
+                key = f"{base}:{check['name']}:{check['run']}"
+                if key not in baselines:
+                    baselines[key] = engine_checks.baseline(target, ticket_id, wt, check, base, log, env)["status"]
+                if baselines[key] != "pass":
+                    outcome["preexisting"] = True
+                    outcome["detail"] = (f"also fails on {base[:9]}, the code before this change: pre-existing, not sent "
+                                         f"back\n{outcome.get('detail') or ''}").strip()
+            outcomes.append(outcome)
+            if _blocking(outcome):
+                break
+        if stage.regression and not any(_blocking(o) for o in outcomes):
+            outcomes.append(_regression_test(target, ticket_id, wt, record, run, log, env))
+        if target.screens and stage.result == "implement" and not any(_blocking(o) for o in outcomes):
+            # The app's pages, as the change left them, for the review page; one that cannot be taken goes back.
+            artifacts = state.inbox_dir(target, ticket_id) / "artifacts"
+            shot, evidence = screens.take(target, ticket_id, wt, artifacts, log, env, worktree.target_env(target, ticket_id, wt)[1])
+            outcomes.append(shot)
+            if evidence:
+                record["result"]["artifacts"] = results.normalize_artifacts(
+                    [*(record["result"].get("artifacts") or []), *evidence], str(artifacts))
     result = record["result"]
     result["checks"] = [*(result.get("checks") or []), *outcomes]
     record["checks"] = outcomes
     state.write_json(stage_dir / "run.json", record)
-    return next((o for o in outcomes if o["status"] != "pass"), None)
+    return next((o for o in outcomes if _blocking(o)), None)
+
+
+def _regression_test(target: Target, ticket_id: str, wt: Path, record: dict, run: dict, log: Path, env: dict) -> dict:
+    """A fix's proof: the test the implementer names in `regressionTest` passes on the branch and fails on the code from
+    before the implement (with only the test file taken from the branch). One passing there does not reproduce the bug."""
+    name = "regression-test"
+    reported = record["result"].get("regressionTest") or {}
+    path, command = str(reported.get("path") or "").strip(), str(reported.get("run") or "").strip()
+
+    def failed(detail: str) -> dict:
+        return {"name": name, "status": "fail", "source": "engine", "exit_code": None, "duration_ms": 0, "detail": detail}
+
+    if not path or not command:
+        return failed("READY without `regressionTest` (`path`, `run`): a fix needs the test that fails without it and "
+                      "passes with it (PLAN's [regression] task)")
+    if not (wt / path).is_file():
+        return failed(f"regressionTest.path {path} is not a file in the branch")
+    check = {"name": name, "run": command, "timeout_s": REGRESSION_TIMEOUT}
+    after = engine_checks.run(target, ticket_id, wt, [check], log, env)[0]
+    if after["status"] != "pass":
+        after["detail"] = f"the regression test fails on the fixed code\n{after.get('detail') or ''}".strip()
+        return after
+    base = run.get("pre_implement") or run.get("base_commit")
+    if not base:
+        return {**after, "detail": "passes on the fixed code (no earlier commit to try it on)"}
+    before = engine_checks.baseline(target, ticket_id, wt, check, base, log, env, keep=(path,))
+    if before["status"] == "pass":
+        return failed(f"`{command}` also passes on {base[:9]} with only {path} taken from the branch: the test does not "
+                      "reproduce the bug. Make it fail without the fix for the reason PLAN's ## Reproduction gives.")
+    return {**after, "detail": f"fails on {base[:9]} without the fix, passes with it"}
 
 
 # --- intent gaps --------------------------------------------------------------------------------
@@ -1086,7 +1341,8 @@ def _drive(target: Target, ticket: dict, st: dict, step: dict) -> list[dict]:
         print(f"{ticket_id}: waiting for {', '.join(d['id'] for d in pending)} to be done; {then}", file=sys.stderr, flush=True)
         return []
     st.pop("waiting_for", None)
-    if _quota_hold(target, ticket_id, st, step, force=IGNORE_QUOTA) or _host_hold(target, ticket_id, st, step):
+    if (_quota_hold(target, ticket_id, st, step, force=IGNORE_QUOTA) or _budget_hold(target, ticket_id, st, step)
+            or _host_hold(target, ticket_id, st, step)):
         return []
     try:
         wt, inbox, ports = _ready_worktree(target, ticket, st, allow_dirty=bool(step.get("resume")))
@@ -1096,8 +1352,9 @@ def _drive(target: Target, ticket: dict, st: dict, step: dict) -> list[dict]:
         raise
     records = []
     while True:
-        if records and (_quota_hold(target, ticket_id, st, step) or _host_hold(target, ticket_id, st, step)):
-            return records  # another session hit the limit meanwhile, or the machine ran short of memory
+        if records and (_quota_hold(target, ticket_id, st, step) or _budget_hold(target, ticket_id, st, step)
+                        or _host_hold(target, ticket_id, st, step)):
+            return records  # another session hit the limit meanwhile, a cap was reached, or the machine ran short of memory
         stage = pl.stage(step["stage"])
         run = st["run"]
         if not step.get("resume"):
@@ -1137,7 +1394,7 @@ def _drive(target: Target, ticket: dict, st: dict, step: dict) -> list[dict]:
             st[kind] = pipelines.higher(kind, st.get(kind), result.get(kind))
         st["tasks"] = plan.tasks(plan.read(inbox / "plan.md"))
         if stage.checks and result["verdict"] == "READY":
-            failed = _run_checks(target, ticket_id, wt, stage_dir, record, ports)
+            failed = _run_checks(target, ticket_id, wt, stage, stage_dir, record, ports, run)
             st["checks"] = record["checks"]
             if failed and failed.get("environment"):
                 # The implementer cannot fix the check's environment: sending it back would only burn its visits.
@@ -1150,14 +1407,26 @@ def _drive(target: Target, ticket: dict, st: dict, step: dict) -> list[dict]:
             if failed:
                 if results.CHECKS_FAILED in stage.routes:
                     result["route"] = results.CHECKS_FAILED
-                else:
+                elif not _best_of_wanted(target, ticket, st, stage, step, run):
+                    _fail(st, f'{stage.id}: check "{failed["name"]}" failed: {(failed.get("detail") or "")[:400]}', stage.id)
+                    _settle(target, ticket_id, st)
+                    return records
+            if not failed or not failed.get("environment"):
+                first_record = record
+                record, failed, result = _best_of_two(target, ticket, st, pl, stage, step, wt, inbox, ports, run, record,
+                                                      failed, records)
+                stage_dir = Path(record["dir"])
+                if failed and record is not first_record and results.CHECKS_FAILED in stage.routes:
+                    result["route"] = results.CHECKS_FAILED
+                if failed and results.CHECKS_FAILED not in stage.routes:  # only a best of two gets here still failing
                     _fail(st, f'{stage.id}: check "{failed["name"]}" failed: {(failed.get("detail") or "")[:400]}', stage.id)
                     _settle(target, ticket_id, st)
                     return records
         if _review_routes(stage):
-            # The prompt's rule, enforced: open `fix` findings go back to the implementer, nits deferred on the last round.
+            # The prompt's rules, enforced: a finding below the verification bar is held as unverified; open `fix`
+            # findings go back to the implementer, nits deferred on the last round.
             record.setdefault("result_warnings", []).extend(
-                results.settle_review_route(result, _last_review_round(run, pl, stage)))
+                [*results.hold_unproven(result), *results.settle_review_route(result, _last_review_round(run, pl, stage))])
         target_id, via, warnings = pl.target(stage, result)
         record.update(route=result.get("route"), next=target_id)
         record.setdefault("result_warnings", []).extend(warnings)
@@ -1227,11 +1496,12 @@ def _drive(target: Target, ticket: dict, st: dict, step: dict) -> list[dict]:
                 _github_round_done(target, ticket_id, pl, run["n"])
                 st.update(state.load_state(target, ticket_id))
             # Done hooks, each best effort and in this order: the GitHub round's push (above), the episode, the
-            # roadmap item (review), the tickets that wait for this one, then the retro.
+            # roadmap item (review), the tickets that wait for this one, the retro, then the Codex review.
             _episode(target, ticket, st, wt)
             roadmap.ticket_changed(target, ticket_id)
             _wake(target, ticket_id)
             _retro(target, ticket_id)
+            _codex_review(target, ticket_id, st)
             return records
         if target_id == "failed":
             _fail(st, f"{stage.id}: {result.get('summary') or result['verdict']}", stage.id)
@@ -1320,7 +1590,7 @@ def _record_note(target: Target, ticket_id: str, st: dict, text: str, by: str, v
 
 
 def answer(target: Target, ticket_id: str, text: str, by: str | None = None, via: str = "cli",
-           run_after: bool = True) -> list[dict]:
+           run_after: bool = True, round_n: int | None = None) -> list[dict]:
     """needs-user: close the open question round and continue the run where the pipeline says;
     awaiting-approval: the text is a change to the plan, reviewed by the stage answers go to;
     failed (e.g. stopped to change course): a new run from there with the decision recorded."""
@@ -1336,8 +1606,8 @@ def answer(target: Target, ticket_id: str, text: str, by: str | None = None, via
         status = st["status"]
         if status == "needs-user":
             r = open_round(st)
-            if r is None:
-                raise PipelineError(f"{ticket_id} has no open question round")
+            if r is None or (round_n is not None and r.get("n") != round_n):  # round_n: only that round, still open
+                raise PipelineError(f"{ticket_id} has no open question round" + (f" {round_n}" if round_n else ""))
             r.update(answer=text[:20000], answered_at=state.now(), by=by, via=via)
             md = plan.round_markdown(r)
             plan.append(state.run_dir(target, ticket_id) / "answers.md", md)
@@ -1412,6 +1682,8 @@ def request_changes(target: Target, ticket_id: str, section_md: str, *, heading:
         inbox = state.inbox_dir(target, ticket_id)
         inbox.mkdir(parents=True, exist_ok=True)
         plan.append(state.plan_path(target, ticket_id), section_md)
+        if source in ("user", "github"):  # a person asked for changes: the memory this ticket used did not save it
+            _memory_outcome(target, ticket_id, "rework")
         st.setdefault("user_reviews", []).append({
             "round": n, "source": source, "heading": heading, "comments": comments, "head": worktree.head(wt),
             "base_commit": worktree.merge_base(wt, worktree.base_ref(target, ticket)), "at": state.now()})

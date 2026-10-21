@@ -129,6 +129,8 @@ _PROPS = {
         "artifacts": _ARTIFACTS,
         "openItems": _STRS,
         "outcomes": {"type": "array", "items": _OUTCOME},
+        "regressionTest": {"type": "object", "properties": {"path": _STR, "run": _STR},
+                           "description": "A fix's regression test: the file, and the command that runs only it"},
         "intentGap": _INTENT_GAP,
         "protectedPatches": _PROTECTED_PATCHES,
     },
@@ -267,6 +269,45 @@ def _counts(given, findings: list[dict], unverified: int) -> dict:
         own = _count(raw)
         out[key] = value if own is None else own
     return out
+
+
+MIN_CONFIDENCE = 0.6  # the review policy's verification bar
+_FILE_REF = re.compile(r"[\w@~-]+\.[A-Za-z0-9]{1,12}\b|[\w.-]+/[\w./-]+")
+
+
+def hold_unproven(result: dict) -> list[str]:
+    """The review policy's verification bar, applied by the engine to a READY review: an open `fix` finding with no
+    `evidence`, no file named in its location or evidence, or a confidence under MIN_CONFIDENCE goes to `unverified`
+    (listed for the person, never sent back to the implementer). Changes `result` in place; returns warnings."""
+    if result.get("verdict") != "READY":
+        return []
+    fixed = set(result.get("fixedIds") or [])
+    kept, held = [], []
+    for f in result.get("findings") or []:
+        why = None
+        if f.get("disposition") == "fix" and f.get("id") not in fixed:
+            evidence = str(f.get("evidence") or "").strip()
+            if f.get("confidence") is not None and f["confidence"] < MIN_CONFIDENCE:
+                why = f"confidence {f['confidence']:.2f} is under {MIN_CONFIDENCE}"
+            elif not evidence:
+                why = "no evidence"
+            elif not _FILE_REF.search(f"{f.get('location') or ''} {evidence}"):
+                why = "its location and evidence name no file"
+        if why:
+            held.append({"id": f.get("id"), "location": f.get("location") or "", "summary": f.get("summary") or "",
+                         "reason": f"held by the engine: {why}"})
+        else:
+            kept.append(f)
+    if not held:
+        return []
+    result["findings"] = kept
+    result["unverified"] = [*(result.get("unverified") or []), *held]
+    result["counts"] = {**(result.get("counts") or {}), "unverified": len(result["unverified"])}
+    warnings = [f"{', '.join(str(h['id']) for h in held)} held as unverified: below the verification bar"]
+    if result.get("route") == "fix" and not any(f.get("disposition") == "fix" and f.get("id") not in fixed for f in kept):
+        result.update(route="converged", converged=True)  # nothing proven is left to send back
+        warnings.append('route "fix" → "converged": every finding to fix was held')
+    return warnings
 
 
 def settle_review_route(result: dict, last_round: bool) -> list[str]:

@@ -1,0 +1,38 @@
+name: Bug report
+description: Something Ziggy did wrong, or failed to do
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A security problem? Please report it privately instead (Security → Report a vulnerability); see SECURITY.md.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what Ziggy did instead.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: How to reproduce
+      description: The ticket (or a smaller one), the pipeline, and the target's config without secrets.
+  - type: textarea
+    id: logs
+    attributes:
+      label: Output
+      description: "`ziggy status <id>`, the failing stage's `run.json` result or `checks.log` tail, the panel's error."
+      render: text
+  - type: input
+    id: versions
+    attributes:
+      label: Versions
+      description: "`ziggy --version`, `claude --version`, macOS version"
+    validations:
+      required: true
+  - type: textarea
+    id: doctor
+    attributes:
+      label: ziggy doctor
+      render: text

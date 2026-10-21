@@ -5,28 +5,32 @@ no target name, path or credential is ever tracked here. config.example.toml doc
 """
 import os
 import re
+import sys
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
-PIPELINE_ROOT = Path(__file__).resolve().parents[1]
+PIPELINE_ROOT = Path(__file__).resolve().parents[1]  # the checkout (or, installed, site-packages)
+PACKAGE = Path(__file__).resolve().parent  # what ships with the package: pipelines, prompts, templates, settings, hooks
 
-_TARGET_KEYS = {"path", "base_branch", "remote", "plan_model", "build_model", "router_model", "retro", "retro_model", "timeout",
-                "quiet_after", "stall_after", "max_active", "budget_usd", "prepare", "env", "checks", "github_repo", "gh_user",
+_TARGET_KEYS = {"path", "base_branch", "remote", "plan_model", "build_model", "router_model", "retro", "retro_model", "codex_review", "timeout",
+                "quiet_after", "stall_after", "answer_after", "max_active", "budget_usd", "ticket_budget_usd", "daily_budget_usd", "prepare", "env", "checks", "github_repo", "gh_user",
                 "preserve", "teardown", "ports", "pr_feedback_bots", "pr_replies", "memory_dir", "memory_budget", "mode",
-                "roadmap_model", "lead_model", "lead_issue_label", "check_sandbox"}
+                "roadmap_model", "lead_model", "lead_issue_label", "issue_label", "issue_run", "best_of", "codex_stages", "codex_model", "screens", "check_sandbox"}
 # How much a target runs on its own: "personal" lets dependants start themselves; "controlled" (company repositories)
 # always stops for plan approval, asks before starting a dependant and never answers on GitHub.
 MODES = ("controlled", "personal")
+# When a done ticket gets the Codex second review on its own: never, when its plan rated it high risk or large, or always.
+CODEX_REVIEW = ("off", "risky", "always")
 _CHECK_KEYS = {"name", "run", "timeout"}
 # Named additions to the checks' sandbox-exec profile a target opts into (check_sandbox = ["xcode"]); checks.py has the
 # rules. xcode: SwiftPM's shared cache and the simulator's test-manager socket, which `xcodebuild test` needs.
 CHECK_SANDBOX_PRESETS = ("xcode",)
 _CHECK_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 ._-]{0,39}$")
 _DURATION_RE = re.compile(r"^(?:(\d+)\s*d)?\s*(?:(\d+)\s*h)?\s*(?:(\d+)\s*m(?!s))?\s*(?:(\d+)\s*s)?$", re.I)
-_SLACK_KEYS = {"app_token_cmd", "bot_token_cmd", "channel", "user", "target"}
+_SLACK_KEYS = {"app_token_cmd", "bot_token_cmd", "channel", "user", "target", "forward"}
 _PORTS_KEYS = {"start", "size", "count"}
-_NOTIFY_KEYS = {"enabled", "events", "min_interval"}
+_NOTIFY_KEYS = {"enabled", "events", "min_interval", "urgent", "digest_every", "language"}
 _CHAT_KEYS = {"models", "timeout"}
 _MEMORY_KEYS = {"vault", "projects_map"}
 _LEAD_KEYS = {"enabled", "at"}
@@ -37,13 +41,32 @@ MEMORY_BUDGET = 4096  # bytes of project memory per stage prompt (memory_budget)
 _MODEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:\[\]-]{0,79}$")
 # The needs-you kinds a notification can be sent for (attention.py derives them).
 NOTIFY_EVENTS = ("question", "approval", "failed", "lost", "job-error", "quiet", "publish", "push", "merged-kept", "pr-feedback",
-                 "error", "memory", "blocked", "restack", "start", "quota", "lead", "protected", "stall")
+                 "error", "memory", "blocked", "restack", "start", "quota", "lead", "protected", "stall", "report")
+# The languages of what Ziggy writes for you outside the panel (notifications, the weekly report); the panel picks its own.
+LANGUAGES = ("en", "tr")
+
+
+def system_language() -> str:
+    """"tr" when the locale is Turkish (LC_ALL, else LANG), else "en"."""
+    locale = os.environ.get("LC_ALL") or os.environ.get("LANG") or ""
+    return "tr" if locale.lower().startswith("tr") else "en"
+
+
+# With digests on, these still notify at once (a person is needed now); the rest wait for the digest.
+URGENT_EVENTS = ("question", "approval", "failed", "lost", "error", "quota", "protected")
 CHAT_MODELS = ("sonnet", "opus", "fable", "haiku")  # sonnet first: most chat turns are lookups, not hard reasoning
 _NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 
 
 class ConfigError(Exception):
     pass
+
+
+def self_argv() -> list[str]:
+    """How Ziggy starts itself again (panel jobs, the launchd service): a checkout's bin/ziggy, else the installed
+    package."""
+    script = PIPELINE_ROOT / "bin" / "ziggy"
+    return [sys.executable, str(script)] if script.is_file() else [sys.executable, "-m", "ziggy"]
 
 
 def config_path() -> Path:
@@ -69,12 +92,24 @@ class Target:
     router_model: str = "sonnet"  # the one-shot call that proposes a ticket type for a request
     retro: bool = True  # a done ticket with something to learn from gets a read-only retro session (retro.py)
     retro_model: str = "sonnet"  # the retro session's model
+    codex_review: str = "off"  # CODEX_REVIEW: a done ticket's automatic Codex review (review.py; needs `codex`)
     roadmap_model: str = "sonnet"  # the roadmap draft session's model (roadmap.py)
     timeout: int = 5400
     quiet_after: int = 900  # seconds without agent events before the panel calls a session quiet
     stall_after: int = 600  # seconds one tool call may run before the inbox says it is taking long (stalls.py)
+    # Seconds an open question round may wait before it is answered with its recommendations and the run goes on
+    # (pipeline.default_answer_at); None: it waits for you. Never in controlled mode.
+    answer_after: int | None = None
     max_active: int = 2  # headless runs at once in this target; more wait in line for a slot
     budget_usd: float | None = None  # per session: claude --max-budget-usd
+    ticket_budget_usd: float | None = None  # all of one ticket's sessions (budget.py): over it, the run stops
+    daily_budget_usd: float | None = None  # the target's sessions per local day: over it, tickets wait for tomorrow
+    issue_label: str | None = None  # open GitHub issues with this label become tickets gh-<n> (issues.py)
+    issue_run: bool = False  # such a ticket starts at once
+    codex_stages: tuple[str, ...] = ()  # stage ids Codex runs instead of Claude Code (dispatch.run_codex)
+    codex_model: str | None = None  # their model (default: Codex's own)
+    screens: dict = field(default_factory=dict)  # [targets.<name>.screens]: pages to screenshot after checks (screens.py)
+    best_of: str = "off"  # CODEX_REVIEW's values: a second implement attempt, the better one kept (pipeline._best_of_two)
     prepare: tuple[str, ...] = ()
     checks: tuple[dict, ...] = ()  # {name, run, timeout_s}: run by the engine after an implement stage, sandboxed
     check_sandbox: tuple[str, ...] = ()  # CHECK_SANDBOX_PRESETS the checks' sandbox profile adds (opt-in per target)
@@ -213,6 +248,7 @@ class SlackConfig:
     channel: str  # the one channel the listener reads
     user: str  # the one member whose messages it acts on
     target: str | None = None
+    forward: bool = False  # the target's questions, approvals and failures of any ticket go to the channel (listener.py)
 
 
 def _load() -> tuple[Path, dict]:
@@ -236,6 +272,8 @@ def load_slack() -> SlackConfig:
     missing = [k for k in ("app_token_cmd", "bot_token_cmd", "channel", "user") if not raw.get(k)]
     if missing:
         raise ConfigError(f"{path}: [slack] needs {', '.join(missing)}")
+    if not isinstance(raw.get("forward", False), bool):
+        raise ConfigError(f"{path}: [slack] forward must be true or false")
     return SlackConfig(**raw)
 
 
@@ -244,6 +282,9 @@ class NotificationsConfig:
     enabled: bool = True
     events: tuple[str, ...] = NOTIFY_EVENTS  # needs-you kinds that notify
     min_interval: int = 30  # seconds between two notifications; the ones in between are summed up
+    urgent: tuple[str, ...] = URGENT_EVENTS  # kinds that notify at once when digests are on
+    digest_every: int = 0  # seconds; above 0, the other kinds are collected into one digest notification this often
+    language: str = "en"  # LANGUAGES: notifications and the weekly report (default: the system locale's)
 
 
 @dataclass(frozen=True)
@@ -279,11 +320,21 @@ def load_notifications() -> NotificationsConfig:
     if wrong:
         renamed = " (`rules` is now `memory`)" if "rules" in wrong else ""
         raise ConfigError(f"{path}: [notifications] unknown events {', '.join(wrong)}{renamed} (known: {', '.join(NOTIFY_EVENTS)})")
-    try:
-        min_interval = parse_duration(raw.get("min_interval", 30))
-    except ValueError as exc:
-        raise ConfigError(f"{path}: [notifications] min_interval: {exc}") from None
-    return NotificationsConfig(enabled=enabled, events=tuple(dict.fromkeys(events)), min_interval=min_interval)
+    durations = {}
+    for key, default in (("min_interval", 30), ("digest_every", 0)):
+        try:
+            durations[key] = parse_duration(raw.get(key, default))
+        except ValueError as exc:
+            raise ConfigError(f"{path}: [notifications] {key}: {exc}") from None
+    min_interval, digest_every = durations["min_interval"], durations["digest_every"]
+    urgent = raw.get("urgent", list(URGENT_EVENTS))
+    if not isinstance(urgent, list) or not all(isinstance(e, str) for e in urgent) or set(urgent) - set(NOTIFY_EVENTS):
+        raise ConfigError(f"{path}: [notifications] urgent must be a list of event names (known: {', '.join(NOTIFY_EVENTS)})")
+    language = raw.get("language") or system_language()
+    if language not in LANGUAGES:
+        raise ConfigError(f"{path}: [notifications] language must be one of {', '.join(LANGUAGES)}")
+    return NotificationsConfig(enabled=enabled, events=tuple(dict.fromkeys(events)), min_interval=min_interval,
+                               urgent=tuple(dict.fromkeys(urgent)), digest_every=digest_every, language=language)
 
 
 def load_chat() -> ChatConfig:
@@ -492,6 +543,63 @@ def _memory_budget(path, name: str, value) -> int:
     return value
 
 
+def _dollars(path, name: str, key: str, value) -> float | None:
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
+        raise ConfigError(f"{path}: [targets.{name}] {key} must be a positive number of dollars")
+    return float(value)
+
+
+def _codex_review(path, name: str, value) -> str:
+    return _choice(path, name, "codex_review", value)
+
+
+_SCREENS_KEYS = {"pages", "url", "start", "wait", "sizes", "browser"}
+
+
+def _screens(path, name: str, raw) -> dict:
+    """[targets.<name>.screens]: `pages` (paths, required), `url` (default http://127.0.0.1:{port}), `start`, `wait`,
+    `sizes` ([[w, h], …]) and `browser`; {} when absent."""
+    if raw is None:
+        return {}
+    where = f"{path}: [targets.{name}.screens]"
+    if not isinstance(raw, dict):
+        raise ConfigError(f"{where} must be a table")
+    unknown = set(raw) - _SCREENS_KEYS
+    if unknown:
+        raise ConfigError(f"{where}: unknown keys {', '.join(sorted(unknown))}")
+    pages = raw.get("pages")
+    if not isinstance(pages, list) or not pages or not all(isinstance(p, str) and p.startswith("/") for p in pages):
+        raise ConfigError(f"{where} pages must be a list of paths starting with / (e.g. [\"/\", \"/cart\"])")
+    sizes = raw.get("sizes", [[1440, 900], [390, 844]])
+    if not isinstance(sizes, list) or not all(isinstance(s, list) and len(s) == 2 and all(_int_in(v, 200, 4000) for v in s)
+                                              for s in sizes):
+        raise ConfigError(f"{where} sizes must be a list of [width, height] pairs (200..4000)")
+    for key in ("url", "start", "browser"):
+        if key in raw and (not isinstance(raw[key], str) or not raw[key].strip()):
+            raise ConfigError(f"{where} {key} must be a non-empty string")
+    try:
+        wait = parse_duration(raw.get("wait", 60))
+    except ValueError as exc:
+        raise ConfigError(f"{where} wait: {exc}") from None
+    return {"pages": list(dict.fromkeys(pages)), "url": raw.get("url", "http://127.0.0.1:{port}"), "start": raw.get("start"),
+            "wait": wait, "sizes": [list(s) for s in sizes], "browser": raw.get("browser")}
+
+
+def _stage_ids(path, name: str, raw) -> tuple[str, ...]:
+    if not isinstance(raw, list) or not all(isinstance(x, str) and re.match(r"^[a-z][a-z0-9-]{0,39}$", x) for x in raw):
+        raise ConfigError(f"{path}: [targets.{name}] codex_stages must be a list of stage ids (e.g. [\"review\"])")
+    return tuple(dict.fromkeys(raw))
+
+
+def _choice(path, name: str, key: str, value) -> str:
+    """One of CODEX_REVIEW (\"off\", \"risky\", \"always\")."""
+    if value not in CODEX_REVIEW:
+        raise ConfigError(f"{path}: [targets.{name}] {key} must be one of {', '.join(map(repr, CODEX_REVIEW))}")
+    return value
+
+
 def _mode(path, name: str, value) -> str:
     if value not in MODES:
         raise ConfigError(f"{path}: [targets.{name}] mode must be \"controlled\" or \"personal\"")
@@ -539,9 +647,16 @@ def load_target(name: str | None = None) -> Target:
     if mode == "controlled" and pr_replies:
         pr_replies = False
         warnings.append(f"[targets.{name}] pr_replies = true is ignored: mode = \"controlled\" never answers on GitHub")
+    answer_after = _duration(path, name, "answer_after", raw["answer_after"]) if raw.get("answer_after") is not None else None
+    if mode == "controlled" and answer_after is not None:
+        answer_after = None
+        warnings.append(f"[targets.{name}] answer_after is ignored: mode = \"controlled\" always waits for your answers")
     label = raw.get("lead_issue_label")
     if label is not None and (not isinstance(label, str) or not label.strip()):
         raise ConfigError(f"{path}: [targets.{name}] lead_issue_label must be a GitHub label name")
+    issue_label = raw.get("issue_label")
+    if issue_label is not None and (not isinstance(issue_label, str) or not issue_label.strip()):
+        raise ConfigError(f"{path}: [targets.{name}] issue_label must be a GitHub label name")
     return Target(
         name=name,
         path=repo,
@@ -552,12 +667,22 @@ def load_target(name: str | None = None) -> Target:
         router_model=raw.get("router_model", "sonnet"),
         retro=retro,
         retro_model=_model(path, name, "retro_model", raw.get("retro_model", "sonnet")),
+        codex_review=_codex_review(path, name, raw.get("codex_review", "off")),
         roadmap_model=_model(path, name, "roadmap_model", raw.get("roadmap_model", "sonnet")),
         timeout=int(raw.get("timeout", 5400)),
         quiet_after=int(raw.get("quiet_after", 900)),
         stall_after=_duration(path, name, "stall_after", raw.get("stall_after", 600)),
+        answer_after=answer_after,
         max_active=_max_active(path, name, raw.get("max_active", 2)),
         budget_usd=float(raw["budget_usd"]) if raw.get("budget_usd") else None,
+        ticket_budget_usd=_dollars(path, name, "ticket_budget_usd", raw.get("ticket_budget_usd")),
+        daily_budget_usd=_dollars(path, name, "daily_budget_usd", raw.get("daily_budget_usd")),
+        issue_label=issue_label.strip() if issue_label else None,
+        issue_run=_flag(path, name, "issue_run", raw.get("issue_run", False)),
+        best_of=_choice(path, name, "best_of", raw.get("best_of", "off")),
+        codex_stages=_stage_ids(path, name, raw.get("codex_stages", [])),
+        screens=_screens(path, name, raw.get("screens")),
+        codex_model=_model(path, name, "codex_model", raw["codex_model"]) if raw.get("codex_model") else None,
         prepare=_commands(path, name, "prepare", raw.get("prepare", [])),
         checks=_checks(path, name, raw.get("checks", [])),
         check_sandbox=_check_sandbox(path, name, raw.get("check_sandbox", [])),

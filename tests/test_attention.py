@@ -54,7 +54,7 @@ QUESTION = {"rounds": [{"n": 1, "stage": "plan", "questions": [{"text": "a"}], "
 def tk(env, monkeypatch):
     sent = []
     monkeypatch.setattr(attention.notify, "wants", lambda kind: True)
-    monkeypatch.setattr(attention.notify, "send", lambda title, message, *, key: sent.append((title, message, key)) or True)
+    monkeypatch.setattr(attention.notify, "send", lambda title, message, *, key, kind=None: sent.append((title, message, key)) or True)
     monkeypatch.setattr(attention.dispatch, "quiet_for", lambda stage_dir, threshold, pid=None: None)
     return config.load_target("demo"), sent
 

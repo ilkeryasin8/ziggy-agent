@@ -14,7 +14,7 @@
 set -u
 
 PIPELINE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SETTINGS="$PIPELINE_ROOT/claude-settings.json"
+SETTINGS="$PIPELINE_ROOT/ziggy/claude-settings.json"
 [ $# -eq 1 ] || { echo "usage: bash scripts/sandbox-smoke.sh <target-repo>" >&2; exit 2; }
 TARGET="$(cd "$1" 2>/dev/null && git rev-parse --show-toplevel 2>/dev/null)" \
     || { echo "sandbox-smoke: $1 is not a git checkout" >&2; exit 2; }
@@ -35,7 +35,7 @@ git clone -q "$ORIGIN" "$MAIN" || exit 2
 git -C "$MAIN" config user.name "Sandbox Smoke" || exit 2
 git -C "$MAIN" config user.email sandbox-smoke@example.test || exit 2
 git -C "$MAIN" config commit.gpgsign false || exit 2
-git -C "$MAIN" config core.hooksPath "$PIPELINE_ROOT/githooks" || exit 2
+git -C "$MAIN" config core.hooksPath "$PIPELINE_ROOT/ziggy/githooks" || exit 2
 git -C "$MAIN" worktree add -q -b sandbox-smoke "$WT" || exit 2
 
 # A project hook that would leave a mark if the run executed it.

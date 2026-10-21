@@ -1,0 +1,14 @@
+title = "Make search ignore case and Unicode normalization differences"
+type = "fix"
+body = """
+`search` only lowercases, so it misses matches that users consider obvious: searching "STRASSE" does not find "Strasse" spelled with an eszett, Greek words in capitals do not match their lowercase form (final sigma), and "cafe" with a combining accent typed on a Mac does not match the precomposed form stored in our data.
+
+Where: `search/find.py`.
+
+Expected:
+- Matching is a case-insensitive substring match using full Unicode case folding.
+- Precomposed and decomposed forms of the same text compare equal (both in the query and in the items).
+- Results keep the input order; an empty query returns every item; no match returns an empty list.
+- Accents are NOT ignored: "cafe" must not match "cafe" with an acute accent.
+"""
+check = "python3 -m unittest discover -s hidden_tests -t . -q"
