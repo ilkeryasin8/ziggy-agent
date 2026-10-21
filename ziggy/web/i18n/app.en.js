@@ -657,6 +657,8 @@ i18nAdd({
   "Son 30 gün": "Last 30 days",
   "Toplam": "Total",
   "{0} oturum · {1} ticket": "{0} sessions · {1} tickets",
+  "{0} ticket@@one": "{0} ticket",
+  "{0} ticket@@many": "{0} tickets",
   "Günlük maliyet": "Daily cost",
   "aşamaya göre · son {0} gün": "by stage · last {0} days",
   "Projeye göre": "By project",
