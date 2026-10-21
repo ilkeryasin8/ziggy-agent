@@ -11,7 +11,8 @@
   const PENDING_MS = 20000; // a sent question whose turn never shows up (the job was refused late)
   const MAX_TEXT = 8000;
   const LIVE_STEPS = 8;
-  const STATE_TR = { starting: "başlıyor", running: "yazıyor", ok: "tamam", failed: "başarısız", killed: "durduruldu", lost: "kayıp" };
+  const STATE_TR = { starting: "başlıyor", running: "yazıyor", ok: "tamam", failed: "başarısız", killed: "durduruldu", lost: "kayıp" }; // i18n-ok: the keys of stateText()'s t()
+  const stateText = (state) => (state in STATE_TR ? t(STATE_TR[state]) : undefined);
   const RETRY = new Set(["failed", "lost", "killed"]);
   const MODEL_KEY = "ziggy.chat.model";
   const seeds = new Map(); // "target/id" -> a question to put in the composer (ask buttons)
@@ -23,19 +24,19 @@
   };
   const reduced = () => window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   const money = (v) => (typeof v === "number" ? (v > 0 && v < 0.005 ? "<$0.01" : `$${v.toFixed(2)}`) : null);
-  const secs = (ms) => (typeof ms === "number" ? (ms < 60000 ? `${Math.round(ms / 1000)} sn` : `${Math.floor(ms / 60000)} dk ${Math.round((ms % 60000) / 1000)} sn`) : null);
+  const secs = (ms) => (typeof ms === "number" ? (ms < 60000 ? t("{0} sn", Math.round(ms / 1000)) : t("{0} dk {1} sn", Math.floor(ms / 60000), Math.round((ms % 60000) / 1000))) : null);
 
   function ago(iso) {
     if (!iso) return "";
     const s = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000);
-    if (s < 60) return "az önce";
-    if (s < 3600) return `${Math.floor(s / 60)} dk önce`;
-    if (s < 86400) return `${Math.floor(s / 3600)} sa önce`;
-    return `${Math.floor(s / 86400)} g önce`;
+    if (s < 60) return t("az önce");
+    if (s < 3600) return t("{0} dk önce", Math.floor(s / 60));
+    if (s < 86400) return t("{0} sa önce", Math.floor(s / 3600));
+    return t("{0} g önce", Math.floor(s / 86400));
   }
 
   function copy(text, ctx, label) {
-    navigator.clipboard.writeText(text).then(() => ctx.toast(`${label} kopyalandı`), () => ctx.toast("Kopyalanamadı", true));
+    navigator.clipboard.writeText(text).then(() => ctx.toast(t("{0} kopyalandı", label)), () => ctx.toast(t("Kopyalanamadı"), true));
   }
 
   // --- answers and steps ------------------------------------------------------------------------
@@ -44,7 +45,7 @@
     const node = ctx.md(text);
     for (const pre of node.querySelectorAll("pre")) {
       const code = pre.textContent;
-      const btn = ctx.h("button", { class: "small ghost chat-copy-code", type: "button", title: "Kodu kopyala", onclick: () => copy(code, ctx, "Kod") }, "Kopyala");
+      const btn = ctx.h("button", { class: "small ghost chat-copy-code", type: "button", title: t("Kodu kopyala"), onclick: () => copy(code, ctx, t("Kod")) }, t("Kopyala"));
       pre.before(ctx.h("div", { class: "chat-code-bar" }, btn));
     }
     return node;
@@ -53,49 +54,49 @@
   function step(s, h) {
     const cls = "chat-step" + (s.parent ? " sub" : "") + (s.error ? " err" : "");
     if (s.kind === "tool") return h("li", { class: cls }, h("span", { class: "chat-step-name" }, s.name), " ", s.summary || "");
-    if (s.kind === "task") return h("li", { class: cls }, h("span", { class: "chat-step-name" }, "alt-ajan"), " ", s.summary || "");
+    if (s.kind === "task") return h("li", { class: cls }, h("span", { class: "chat-step-name" }, t("alt-ajan")), " ", s.summary || "");
     const text = (s.text || "").trim();
     return h("li", { class: cls + " note" }, "» ", text.length > 400 ? text.slice(0, 399) + "…" : text);
   }
 
-  function liveLabel(t) {
-    if (t.state === "starting") return "Başlıyor";
-    if (t.draft) return "Yazıyor";
-    const last = t.steps[t.steps.length - 1];
-    if (last && last.kind !== "text") return `Çalışıyor · ${t.steps_total} adım`;
-    return "Düşünüyor";
+  function liveLabel(turn) {
+    if (turn.state === "starting") return t("Başlıyor");
+    if (turn.draft) return t("Yazıyor");
+    const last = turn.steps[turn.steps.length - 1];
+    if (last && last.kind !== "text") return t("Çalışıyor · {0} adım", turn.steps_total);
+    return t("Düşünüyor");
   }
 
   // What the live reply shows: the text being streamed, else the trailing complete message.
-  function liveText(t) {
-    if (t.draft) return t.draft;
-    const last = t.steps[t.steps.length - 1];
+  function liveText(turn) {
+    if (turn.draft) return turn.draft;
+    const last = turn.steps[turn.steps.length - 1];
     return last && last.kind === "text" && !last.parent ? last.text : "";
   }
 
   function killedText(error) {
-    if (!error || error === "stopped") return "Yanıt durduruldu.";
+    if (!error || error === "stopped") return t("Yanıt durduruldu.");
     const timed = /^timed out after (.+)$/.exec(error);
-    return timed ? `Yanıt zaman aşımına uğradı (${timed[1]}).` : `Yanıt kesildi: ${error}.`;
+    return timed ? t("Yanıt zaman aşımına uğradı ({0}).", timed[1]) : t("Yanıt kesildi: {0}.", error);
   }
 
   // What the turn left in the worktree: in a read-only chat despite its rules (chat.py stashes it), in a chat that
   // writes (conv.writes) simply what it did.
-  function changeWarnings(t, conv) {
+  function changeWarnings(turn, conv) {
     const out = [];
-    const files = t.changed_files || [];
+    const files = turn.changed_files || [];
     const list = files.slice(0, 5).join(", ") + (files.length > 5 ? ` +${files.length - 5}` : "");
-    const commit = t.head_moved ? `${t.head_moved.before.slice(0, 10)}..${t.head_moved.after.slice(0, 10)}` : "";
+    const commit = turn.head_moved ? `${turn.head_moved.before.slice(0, 10)}..${turn.head_moved.after.slice(0, 10)}` : "";
     if (conv.writes) {
-      if (commit) out.push({ text: `Commit: ${commit}.`, cls: "" });
-      if (files.length) out.push({ text: `Commit'lenmemiş değişiklik: ${list}.`, cls: "" });
+      if (commit) out.push({ text: t("Commit: {0}.", commit), cls: "" });
+      if (files.length) out.push({ text: t("Commit'lenmemiş değişiklik: {0}.", list), cls: "" });
       return out;
     }
     if (files.length) {
-      out.push({ cls: "warn", text: t.stash ? `Sohbet dosya değiştirdi; değişiklik stash'e alındı (${list}).`
-        : `Sohbet dosya değiştirdi (${list}); stash'e alınmadı: ${t.stash_skipped || "?"}.` });
+      out.push({ cls: "warn", text: turn.stash ? t("Sohbet dosya değiştirdi; değişiklik stash'e alındı ({0}).", list)
+        : t("Sohbet dosya değiştirdi ({0}); stash'e alınmadı: {1}.", list, turn.stash_skipped || "?") });
     }
-    if (commit) out.push({ cls: "warn", text: `Sohbet commit attı (${commit}); hiçbir şey geri alınmadı.` });
+    if (commit) out.push({ cls: "warn", text: t("Sohbet commit attı ({0}); hiçbir şey geri alınmadı.", commit) });
     return out;
   }
 
@@ -104,13 +105,14 @@
     const at = { target: row.target, id: row.id };
     return {
       key: `${row.target}/${row.id}`, draftKey: `ziggy.chat.${row.target}.${row.id}`, threads: true, writes: false,
-      title: `${row.id} hakkında sohbet`, placeholder: `${row.id} hakkında sor…`,
-      empty: `${row.id} hakkında her şeyi sorabilirsin: plan ne diyor, bir aşama neden başarısız oldu, dalda ne değişti.`,
+      title: t("{0} hakkında sohbet", row.id), placeholder: t("{0} hakkında sor…", row.id),
+      empty: t("{0} hakkında her şeyi sorabilirsin: plan ne diyor, bir aşama neden başarısız oldu, dalda ne değişti.", row.id),
       load: (since) => ctx.api(`/api/chat/${row.target}/${row.id}` + (since ? `?since=${encodeURIComponent(since)}` : "")),
       send: (text, fresh, model) => ctx.api("/api/action", { ...at, action: "chat", text, new: !!fresh, ...(model ? { model } : {}) }),
-      stop: () => ctx.api("/api/action", { ...at, action: "chat_stop" }).then(() => ctx.toast(`${row.id}: yanıt durduruluyor`)),
-      info: (data) => `Yanıtlar salt-okunur bir Claude oturumundan gelir; ${data.cwd === "worktree" ? "ticket'ın worktree'sini" : "ana checkout'u"}, planı ve koşu kayıtlarını okur. Hiçbir şeyi değiştirmez.`
-        + (data.cwd === "worktree" ? "" : " Worktree yok: sohbet yalnız okuyabilir, komut çalıştıramaz."),
+      stop: () => ctx.api("/api/action", { ...at, action: "chat_stop" }).then(() => ctx.toast(t("{0}: yanıt durduruluyor", row.id))),
+      info: (data) => t("Yanıtlar salt-okunur bir Claude oturumundan gelir; {0}, planı ve koşu kayıtlarını okur. Hiçbir şeyi değiştirmez.",
+        data.cwd === "worktree" ? t("ticket'ın worktree'sini") : t("ana checkout'u"))
+        + (data.cwd === "worktree" ? "" : t(" Worktree yok: sohbet yalnız okuyabilir, komut çalıştıramaz.")),
       suggestions: (data) => ticketSuggestions(row, data),
     };
   }
@@ -150,27 +152,27 @@
     };
     open = tab;
 
-    const dot = h("span", { class: "dot live", hidden: true, title: "yanıt yazılıyor" });
+    const dot = h("span", { class: "dot live", hidden: true, title: t("yanıt yazılıyor") });
     const info = h("span", { class: "muted small grow" });
     const resume = h("div", { class: "chat-resume", hidden: true });
     const list = h("div", { class: "chat-turns", "aria-live": "polite" });
-    const box = h("textarea", { rows: 3, maxlength: String(MAX_TEXT), "aria-label": "Soru" });
-    const model = h("select", { "aria-label": "Model", class: "chat-model" });
+    const box = h("textarea", { rows: 3, maxlength: String(MAX_TEXT), "aria-label": t("Soru") });
+    const model = h("select", { "aria-label": t("Model"), class: "chat-model" });
     const freshBtn = h("button", { class: "small ghost", type: "button", "aria-pressed": "false", hidden: !conv.threads,
-      title: "Sıradaki mesaj önceki mesajlar olmadan yeni bir oturum başlatır" }, "Yeni sohbet");
-    const stopBtn = h("button", { class: "small danger", type: "button", hidden: true }, "Durdur");
-    const sendBtn = h("button", { class: "small primary", type: "button" }, "Gönder");
+      title: t("Sıradaki mesaj önceki mesajlar olmadan yeni bir oturum başlatır") }, t("Yeni sohbet"));
+    const stopBtn = h("button", { class: "small danger", type: "button", hidden: true }, t("Durdur"));
+    const sendBtn = h("button", { class: "small primary", type: "button" }, t("Gönder"));
     const queueBox = h("div", { class: "chat-queue", hidden: true });
     tab.box = box;
 
     const root = h("div", { class: "chat" },
       h("div", { class: "row tight chat-head" }, dot, info,
-        h("button", { class: "small ghost", type: "button", onclick: () => copyConversation(tab) }, "Sohbeti kopyala")),
+        h("button", { class: "small ghost", type: "button", onclick: () => copyConversation(tab) }, t("Sohbeti kopyala"))),
       resume, list, queueBox,
       h("div", { class: "chat-composer" }, box,
         h("div", { class: "row tight wrap" },
           model, freshBtn,
-          h("span", { class: "muted small grow" }, "Enter gönderir · Shift+Enter yeni satır · ↑ son soruyu düzenler · Esc durdurur"),
+          h("span", { class: "muted small grow" }, t("Enter gönderir · Shift+Enter yeni satır · ↑ son soruyu düzenler · Esc durdurur")),
           stopBtn, sendBtn)));
     tab.root = root;
     container.replaceChildren(root);
@@ -209,7 +211,7 @@
       merge(tab, data, since);
     } catch (e) {
       if (!current(tab, gen)) return;
-      tab.info.textContent = `Sohbet okunamadı: ${e.message}`;
+      tab.info.textContent = t("Sohbet okunamadı: {0}", e.message);
     }
     const live = tab.data?.live || tab.pending;
     let wait = live ? LIVE_MS : IDLE_MS;
@@ -223,7 +225,7 @@
     tab.turns = [...kept, ...data.turns];
     tab.data = data;
     if (tab.pending && (tab.turns.some((t) => t.id > tab.pending.after) || Date.now() - tab.pending.at > PENDING_MS)) {
-      if (!tab.turns.some((t) => t.id > tab.pending.after)) tab.ctx.toast("Soru başlatılamadı; tekrar dene", true);
+      if (!tab.turns.some((t) => t.id > tab.pending.after)) tab.ctx.toast(t("Soru başlatılamadı; tekrar dene"), true);
       tab.pending = null;
     }
     if (!data.live && !tab.pending && tab.queued) {
@@ -244,30 +246,30 @@
     tab.resume.hidden = !data.resume_command;
     if (data.resume_command && tab.resume.dataset.cmd !== data.resume_command) {
       tab.resume.dataset.cmd = data.resume_command;
-      tab.resume.replaceChildren(h("details", {}, h("summary", { class: "muted small" }, "Terminalde devam et"),
+      tab.resume.replaceChildren(h("details", {}, h("summary", { class: "muted small" }, t("Terminalde devam et")),
         h("div", { class: "row tight" }, h("code", { class: "chat-cmd" }, data.resume_command),
-          h("button", { class: "small ghost", type: "button", onclick: () => copy(data.resume_command, ctx, "Devam komutu") }, "Kopyala"))));
+          h("button", { class: "small ghost", type: "button", onclick: () => copy(data.resume_command, ctx, t("Devam komutu")) }, t("Kopyala")))));
     }
     models(tab);
 
     const nodes = [];
-    if (data.truncated) nodes.push(h("p", { class: "muted small" }, "Daha eski mesajlar gösterilmiyor."));
+    if (data.truncated) nodes.push(h("p", { class: "muted small" }, t("Daha eski mesajlar gösterilmiyor.")));
     if (!tab.turns.length && !tab.pending) nodes.push(emptyState(tab));
     const lastId = tab.turns.length ? tab.turns[tab.turns.length - 1].id : null;
-    tab.turns.forEach((t, i) => {
-      if (t.new_thread && i > 0) nodes.push(h("div", { class: "chat-divider" }, h("span", {}, "yeni sohbet")));
+    tab.turns.forEach((turn, i) => {
+      if (turn.new_thread && i > 0) nodes.push(h("div", { class: "chat-divider" }, h("span", {}, t("yeni sohbet"))));
       // A turn is rebuilt when it changes; the live one between changes only gets its draft.
-      const sig = JSON.stringify([t.state, t.answer, t.error, t.steps_total, t.cost_usd, t.id === lastId, data.live, !!tab.pending]);
-      let entry = tab.els.get(t.id);
-      if (entry && entry.sig === sig && entry.smooth && t.draft !== null) {
-        entry.smooth.set(liveText(t));
+      const sig = JSON.stringify([turn.state, turn.answer, turn.error, turn.steps_total, turn.cost_usd, turn.id === lastId, data.live, !!tab.pending]);
+      let entry = tab.els.get(turn.id);
+      if (entry && entry.sig === sig && entry.smooth && turn.draft !== null) {
+        entry.smooth.set(liveText(turn));
       } else if (!entry || entry.sig !== sig) {
-        entry = { sig, ...turnNode(tab, t, t.id === lastId, entry?.smooth) };
-        tab.els.set(t.id, entry);
+        entry = { sig, ...turnNode(tab, turn, turn.id === lastId, entry?.smooth) };
+        tab.els.set(turn.id, entry);
       }
       nodes.push(entry.el);
     });
-    if (tab.pending) nodes.push(h("div", { class: "chat-q pending" }, h("div", { class: "chat-q-meta muted small" }, "gönderiliyor…"), tab.pending.text));
+    if (tab.pending) nodes.push(h("div", { class: "chat-q pending" }, h("div", { class: "chat-q-meta muted small" }, t("gönderiliyor…")), tab.pending.text));
     const atBottom = tab.list.scrollHeight - tab.list.scrollTop - tab.list.clientHeight < 60;
     tab.list.replaceChildren(...nodes);
     if (atBottom) tab.list.scrollTop = tab.list.scrollHeight;
@@ -275,8 +277,8 @@
     tab.queueBox.hidden = !tab.queued;
     if (tab.queued) {
       tab.queueBox.replaceChildren(h("div", { class: "chat-q queued" },
-        h("div", { class: "chat-q-meta muted small" }, "sırada · yanıt bitince gönderilir ",
-          h("button", { class: "small ghost", type: "button", onclick: () => { tab.queued = null; render(tab); } }, "iptal")),
+        h("div", { class: "chat-q-meta muted small" }, t("sırada · yanıt bitince gönderilir "),
+          h("button", { class: "small ghost", type: "button", onclick: () => { tab.queued = null; render(tab); } }, t("iptal"))),
         tab.queued.text));
     }
     controls(tab);
@@ -287,7 +289,7 @@
     const sig = data.models.join(",");
     if (model.dataset.sig === sig) return;
     model.dataset.sig = sig;
-    model.replaceChildren(ctx.h("option", { value: "" }, `varsayılan (${data.model})`),
+    model.replaceChildren(ctx.h("option", { value: "" }, t("varsayılan ({0})", data.model)),
       ...data.models.filter((m) => m !== data.model).map((m) => ctx.h("option", { value: m }, m)));
     const saved = store.get(localStorage, MODEL_KEY);
     model.value = data.models.includes(saved) && saved !== data.model ? saved : "";
@@ -296,21 +298,21 @@
   function controls(tab) {
     const live = !!tab.data?.live;
     tab.stopBtn.hidden = !live;
-    tab.sendBtn.textContent = live || tab.pending ? "Sıraya al" : "Gönder";
+    tab.sendBtn.textContent = live || tab.pending ? t("Sıraya al") : t("Gönder");
     tab.sendBtn.disabled = (live || tab.pending) && !!tab.queued;
-    tab.box.placeholder = tab.fresh ? "Yeni sohbette sor…"
-      : live || tab.pending ? "Önden yaz: yanıt bitince gönderilir…"
-      : tab.turns.length ? "Devam sorusu sor…" : tab.conv.placeholder;
+    tab.box.placeholder = tab.fresh ? t("Yeni sohbette sor…")
+      : live || tab.pending ? t("Önden yaz: yanıt bitince gönderilir…")
+      : tab.turns.length ? t("Devam sorusu sor…") : tab.conv.placeholder;
   }
 
   function ticketSuggestions(r, data) {
-    const out = ["Bu ticket ne durumda?"];
-    if (r.status === "failed") out.push("Son koşu neden başarısız oldu, ne düzeltir?");
-    if (r.status === "needs-user") out.push("Açık soruları cevaplamama yardım et: ne önerirsin, neden?");
-    if (r.status === "awaiting-approval" || r.status === "done" || r.status === "running") out.push("Planı ve kalan işi özetle.");
-    if (data?.cwd === "worktree") out.push("Dalda şu ana kadar ne değişti?");
-    if (r.status === "done") out.push("Review neler buldu, açık kalan var mı?");
-    out.push("Bu değişiklik hangi dosyalara dokunacak?");
+    const out = [t("Bu ticket ne durumda?")];
+    if (r.status === "failed") out.push(t("Son koşu neden başarısız oldu, ne düzeltir?"));
+    if (r.status === "needs-user") out.push(t("Açık soruları cevaplamama yardım et: ne önerirsin, neden?"));
+    if (r.status === "awaiting-approval" || r.status === "done" || r.status === "running") out.push(t("Planı ve kalan işi özetle."));
+    if (data?.cwd === "worktree") out.push(t("Dalda şu ana kadar ne değişti?"));
+    if (r.status === "done") out.push(t("Review neler buldu, açık kalan var mı?"));
+    out.push(t("Bu değişiklik hangi dosyalara dokunacak?"));
     return out.slice(0, 5);
   }
 
@@ -322,49 +324,49 @@
         h("button", { class: "small", type: "button", onclick: () => send(tab, q, false) }, q))));
   }
 
-  function turnNode(tab, t, isLast, prevSmooth) {
+  function turnNode(tab, turn, isLast, prevSmooth) {
     const { ctx, data } = tab;
     const h = ctx.h;
-    const isLive = data.live && data.live_turn === t.id;
+    const isLive = data.live && data.live_turn === turn.id;
     const edit = isLast && !data.live && !tab.pending
-      ? h("button", { class: "small ghost", type: "button", onclick: () => setBox(tab, t.question) }, "düzenle") : "";
+      ? h("button", { class: "small ghost", type: "button", onclick: () => setBox(tab, turn.question) }, t("düzenle")) : "";
     const q = h("div", { class: "chat-q" },
-      h("div", { class: "chat-q-meta row tight muted small" }, h("span", {}, `${t.by || "sen"} · ${ago(t.created_at)}`), h("span", { class: "grow" }), edit),
-      h("div", { class: "chat-q-text" }, t.question));
+      h("div", { class: "chat-q-meta row tight muted small" }, h("span", {}, `${turn.by || t("sen")} · ${ago(turn.created_at)}`), h("span", { class: "grow" }), edit),
+      h("div", { class: "chat-q-text" }, turn.question));
     const reply = h("div", { class: "chat-a" + (isLive ? " live" : "") });
     let smoothText = null;
     if (isLive) {
       // The trailing message shows as the draft, so the step list leaves it out.
-      const all = t.draft || !t.steps.length || t.steps[t.steps.length - 1].kind !== "text" || t.steps[t.steps.length - 1].parent
-        ? t.steps : t.steps.slice(0, -1);
+      const all = turn.draft || !turn.steps.length || turn.steps[turn.steps.length - 1].kind !== "text" || turn.steps[turn.steps.length - 1].parent
+        ? turn.steps : turn.steps.slice(0, -1);
       const steps = all.slice(-LIVE_STEPS);
-      const earlier = t.steps_total - (t.steps.length - all.length) - steps.length;
-      reply.append(h("div", { class: "row tight muted small" }, h("span", { class: "dot live" }), liveLabel(t),
-        t.started_at ? h("span", { "data-since": t.started_at }) : ""));
-      if (steps.length) reply.append(h("ul", { class: "chat-steps" }, earlier > 0 ? h("li", { class: "chat-step muted" }, `${earlier} önceki adım`) : "", steps.map((s) => step(s, h))));
+      const earlier = turn.steps_total - (turn.steps.length - all.length) - steps.length;
+      reply.append(h("div", { class: "row tight muted small" }, h("span", { class: "dot live" }), liveLabel(turn),
+        turn.started_at ? h("span", { "data-since": turn.started_at }) : ""));
+      if (steps.length) reply.append(h("ul", { class: "chat-steps" }, earlier > 0 ? h("li", { class: "chat-step muted" }, t("{0} önceki adım", earlier)) : "", steps.map((s) => step(s, h))));
       const draftBox = h("div", { class: "chat-draft" });
       reply.append(draftBox);
       smoothText = smooth(draftBox, ctx, prevSmooth);
-      smoothText.set(liveText(t));
+      smoothText.set(liveText(turn));
     } else {
-      if (t.steps_total) {
-        const notes = t.steps.every((s) => s.kind === "text");
+      if (turn.steps_total) {
+        const notes = turn.steps.every((s) => s.kind === "text");
         reply.append(h("details", { class: "chat-steps-box" },
-          h("summary", { class: "muted small" }, `${t.steps_total} ${notes ? "not" : "adım"}`),
-          h("ul", { class: "chat-steps" }, t.steps.map((s) => step(s, h)))));
+          h("summary", { class: "muted small" }, `${turn.steps_total} ${notes ? t("not") : t("adım")}`),
+          h("ul", { class: "chat-steps" }, turn.steps.map((s) => step(s, h)))));
       }
-      if (t.answer) reply.append(markdown(t.answer, ctx));
-      if (t.state === "killed") reply.append(h("p", { class: "chat-note warn" }, killedText(t.error)));
-      if (t.state === "failed" || t.state === "lost") reply.append(h("p", { class: "chat-note bad" }, `Yanıt yok: ${t.error || STATE_TR[t.state]}`));
-      for (const w of changeWarnings(t, tab.conv)) reply.append(h("p", { class: "chat-note " + w.cls }, w.text));
-      const meta = [t.model, secs(t.duration_ms), money(t.cost_usd)].filter(Boolean).join(" · ");
+      if (turn.answer) reply.append(markdown(turn.answer, ctx));
+      if (turn.state === "killed") reply.append(h("p", { class: "chat-note warn" }, killedText(turn.error)));
+      if (turn.state === "failed" || turn.state === "lost") reply.append(h("p", { class: "chat-note bad" }, t("Yanıt yok: {0}", turn.error || stateText(turn.state))));
+      for (const w of changeWarnings(turn, tab.conv)) reply.append(h("p", { class: "chat-note " + w.cls }, w.text));
+      const meta = [turn.model, secs(turn.duration_ms), money(turn.cost_usd)].filter(Boolean).join(" · ");
       reply.append(h("div", { class: "row tight chat-a-foot" },
-        t.answer ? h("button", { class: "small ghost", type: "button", onclick: () => copy(t.answer, ctx, "Yanıt") }, "Kopyala") : "",
-        isLast && RETRY.has(t.state) && !data.live && !tab.pending
-          ? h("button", { class: "small ghost", type: "button", onclick: () => send(tab, t.question, false) }, "Tekrar dene") : "",
+        turn.answer ? h("button", { class: "small ghost", type: "button", onclick: () => copy(turn.answer, ctx, t("Yanıt")) }, t("Kopyala")) : "",
+        isLast && RETRY.has(turn.state) && !data.live && !tab.pending
+          ? h("button", { class: "small ghost", type: "button", onclick: () => send(tab, turn.question, false) }, t("Tekrar dene")) : "",
         h("span", { class: "grow" }), h("span", { class: "muted small" }, meta)));
     }
-    return { el: h("div", { class: "chat-turn", "data-turn": t.id }, q, reply), smooth: smoothText };
+    return { el: h("div", { class: "chat-turn", "data-turn": turn.id }, q, reply), smooth: smoothText };
   }
 
   // --- actions -------------------------------------------------------------------------------------
@@ -425,12 +427,12 @@
 
   function copyConversation(tab) {
     const parts = [`# ${tab.conv.title}`];
-    tab.turns.forEach((t, i) => {
-      if (t.new_thread && i > 0) parts.push("---");
-      parts.push(`**${t.by || "sen"}:** ${t.question}`);
-      parts.push(t.answer || `_(yanıt yok: ${t.error || STATE_TR[t.state] || t.state})_`);
+    tab.turns.forEach((turn, i) => {
+      if (turn.new_thread && i > 0) parts.push("---");
+      parts.push(`**${turn.by || t("sen")}:** ${turn.question}`);
+      parts.push(turn.answer || `_(${t("yanıt yok: {0}", turn.error || stateText(turn.state) || turn.state)})_`);
     });
-    copy(parts.join("\n\n") + "\n", tab.ctx, "Sohbet");
+    copy(parts.join("\n\n") + "\n", tab.ctx, t("Sohbet"));
   }
 
   // An ask button elsewhere in the drawer: put the question in the composer and show the tab.

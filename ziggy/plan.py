@@ -21,6 +21,29 @@ def tasks(text: str) -> dict:
     return {"done": sum(1 for m in marks if m in "xX"), "total": len(marks)}
 
 
+REMINDER_TASKS = 25  # open tasks a reminder lists at most
+_GOAL = re.compile(r"^## Goal[^\n]*\n(.*?)(?=^## |\Z)", re.M | re.S)
+_OPEN = re.compile(r"^\s*[-*] \[ \] [TVU]\d.*$", re.M)
+
+
+def reminder(text: str) -> str:
+    """What a resumed or steered session must not lose sight of: PLAN's goal and acceptance criteria and the tasks
+    still open, as a prompt section ("" when PLAN has neither)."""
+    goal = _GOAL.search(text)
+    goal_text = goal.group(1).strip() if goal else ""
+    open_tasks = [line.strip() for line in _OPEN.findall(text)]
+    if not goal_text and not open_tasks:
+        return ""
+    parts = ["## Where this step stands (from PLAN)\n"]
+    if goal_text:
+        parts.append(f"Goal & acceptance, still the bar for done:\n\n{goal_text}\n")
+    if open_tasks:
+        more = len(open_tasks) - REMINDER_TASKS
+        listed = "\n".join(open_tasks[:REMINDER_TASKS]) + (f"\n- … and {more} more" if more > 0 else "")
+        parts.append(f"Still open (check each against the tree before you trust its box):\n\n{listed}\n")
+    return "\n".join(parts)
+
+
 def next_task_number(text: str) -> int:
     """One past the highest T-task id anywhere in the plan (V ids do not count)."""
     return max((int(n) for n in _T_ID.findall(text)), default=0) + 1

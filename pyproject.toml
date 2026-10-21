@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ziggy-agent"
+dynamic = ["version"]
+description = "A personal agent that turns tickets into draft pull requests with sandboxed headless Claude Code sessions"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE", "THIRD_PARTY_NOTICES.md"]
+requires-python = ">=3.12"
+classifiers = [
+    "Operating System :: MacOS",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development",
+]
+
+[project.optional-dependencies]
+slack = ["slack_sdk==3.45.0"]  # only `ziggy listen` needs it; without it, listen re-runs itself under uv with it
+
+[project.scripts]
+ziggy = "ziggy.cli:main"
+
+[tool.setuptools]
+packages = ["ziggy"]
+
+[tool.setuptools.dynamic]
+version = {attr = "ziggy.__version__"}
+
+[tool.setuptools.package-data]
+ziggy = ["claude-settings.json", "githooks/*", "pipelines/*", "prompts/*.md", "prompts/*/*.md", "templates/*", "web/*.*",
+         "web/*/*", "evals/**/*"]

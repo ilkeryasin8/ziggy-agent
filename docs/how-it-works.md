@@ -314,6 +314,9 @@ Implement reports per finding it was asked to fix an outcome (`fixed`, `skipped`
 the review page shows on the finding. Both stages may save evidence (screenshots, recordings, logs)
 under `inbox/artifacts/` and list it in `artifacts`. When the target has engine checks, implement runs
 only the tests covering its change and review only targeted ones, reading the checks' results instead.
+A failing check is tried again on the base commit: failing there too it is pre-existing and does not
+send the work back; a `fix` must also report a `regressionTest` that passes on the branch and fails
+without the fix (reference: Engine checks).
 
 Deferred findings (`inbox/deferred.md`) are listed in the ticket's "Ertelenenler (deferred.md)"
 section, each with "Ticket'a çevir": it prefills the composer, and the new ticket records
@@ -438,9 +441,30 @@ flowchart TB
     sbx -- "anything else" --> stop
 
     w["wrapper publish"] --> g1{"ticket is done<br/>branch is not base/main/master<br/>no Co-Authored-By trailer"}
-    g1 -- ok --> push["git push one fixed refspec<br/>run-only env removed<br/>(forced only for a restack, with a lease)"] --> pr["gh pr create --draft"]
+    g1 -- ok --> g2{"guard.py: CI or agent files,<br/>credentials, invisible text<br/>all approved?"}
+    g2 -- yes --> push["git push one fixed refspec<br/>run-only env removed<br/>(forced only for a restack, with a lease)"] --> pr["gh pr create --draft<br/>(text cleaned: no images, no invisible chars)"]
+    g2 -- "new findings" --> ask(["you approve them, or no push"])
     g1 -- "refused" --> stop2(["no push"])
 ```
+
+- Guarded pushes (`ziggy/guard.py`): a push hands the agent's work to the outside, where GitHub runs the branch's CI
+  with the repository's secrets, renders its PR text and other people's agents read its instruction files. So every
+  push first lists what needs your eyes: changed files that run in CI or steer agents (workflows and other CI configs,
+  `AGENTS.md`/`CLAUDE.md` at any depth, editor-agent rules, devcontainers, MCP configs, `.claude/`, git hooks,
+  install-time scripts added or changed in a `package.json`), credentials in added lines, commit messages and the PR
+  text (shown redacted), and invisible or direction-changing Unicode. The push waits until you approve exactly those
+  findings (stored as fingerprints without line numbers in the ticket's state, so a rebase keeps them approved and a
+  new finding asks again); the panel asks before it starts the publish job. PR titles and bodies and posted Codex
+  reviews always go out cleaned: invisible characters dropped, images and embedded media turned into links.
+- No credentials in the environment: sessions, engine checks and the Codex review get the environment without
+  variables whose names look like credentials; the target's `[env]` entries stay, and Claude's own login only reaches
+  claude sessions. The settings deny reads of other tools' credentials (`~/.aws`, `~/.kube`, `~/.docker`,
+  `~/.gnupg`, `~/.netrc`, `~/.codex`, the keychain, browser profiles, any `.env`, `.npmrc`, `.pypirc`): the sandbox
+  enforces them below the permission layer, verified with a canary read through Python `open()` from Bash under
+  `bypassPermissions`. The check profile denies the same credential folders (not the keychain, which Xcode may read
+  to sign), after every other rule so no preset reopens them.
+- Ziggy refuses to start a session on a Claude Code older than `dispatch.MIN_CLAUDE` (2.1.90): earlier releases had
+  sandbox network-allowlist bypasses.
 
 - The sandbox is the control. A first design guarded command strings; review showed an
   interpreter subprocess, an inline alias or `git send-pack` walks around such guards, so the
@@ -507,10 +531,10 @@ flowchart TB
 ```mermaid
 flowchart LR
     subgraph repo["this repository"]
-        bin["bin/ziggy<br/>ziggy/"]
-        pls["pipelines/*.toml<br/>prompts/"]
-        settings["claude-settings.json"]
-        hooks["githooks/pre-push"]
+        bin["bin/ziggy · ziggy command<br/>ziggy/"]
+        pls["ziggy/pipelines/*.toml<br/>ziggy/prompts/"]
+        settings["ziggy/claude-settings.json"]
+        hooks["ziggy/githooks/pre-push"]
     end
     subgraph personal["~/.config/ziggy/"]
         cfg["config.toml<br/>targets: prepare, checks, env, preserve,<br/>teardown, ports, github_repo, gh_user,<br/>retro, retro_model, roadmap_model, memory_dir, memory_budget,<br/>pr_feedback_bots, pr_replies<br/>[onboard], [notifications], [chat], [memory]"]
@@ -698,9 +722,15 @@ under `<state>/talk/<id>/` (`meta.json`, `turns.json`, `<turn>.jsonl`, `scratch/
 | write | `talk/<id>/worktree` on `chat/<id>` from `<remote>/<base>`, created and prepared (preserve, prepare) with the first message | everything but `git checkout/switch/reset/rebase/branch/tag/push/worktree`; the pre-push hook still refuses a push |
 
 It is the one place a session runs without `--strict-mcp-config`: the claude.ai connectors of the target's Claude login
-(`CLAUDE_CONFIG_DIR` in its env) and the repository's MCP servers load, so the tracker can be asked about. A read chat
-looks things up through them but does not act: every MCP tool whose name starts with a writing verb is denied on any
-server (`mcp__*__update_*`, `mcp__*__send_*`, … `talk.MCP_WRITE_VERBS`), and neither mode gets `RemoteTrigger`. A write
+(`CLAUDE_CONFIG_DIR` in its env) load, so the tracker can be asked about (user-scope MCP servers and unapproved repo
+`.mcp.json` servers do not: `--setting-sources project`). In both modes connectors look things up and never act: a
+chat that can read your mail or issues and also send or change them is one injected sentence from leaking them. Once a
+login's servers are known (from an earlier turn's init event, cached in `<state>/talk-mcp.json`), a turn runs with
+`--permission-mode dontAsk` and an allowlist: the base tools (plus `Edit`/`Write`/`Bash` in a write chat) and each
+server's reading tools (`mcp__<server>__get_*`, `list_`, `search_`, `find_`, `read_`, `query_`; an allow rule needs the
+server's own prefix, `mcp__*__get_*` is not honoured), so any other tool, whatever its name, is refused. Always, and on
+a login's first turn the only guard: every MCP tool named with a writing verb is denied on any server
+(`talk.MCP_WRITE_VERBS`), and neither mode gets `RemoteTrigger`. A write
 chat's turns record the files left changed and the commits made (nothing is stashed or undone); deleting it removes the
 worktree and the branch, refused while the branch holds commits not on its base or changed files unless forced.
 "Ticket'a çevir" (`GET /api/talk/<target>/<id>/ticket`) drafts a ticket from the title and the last turns. Its
@@ -1256,7 +1286,7 @@ inline their own rules and include `{{> _memory}}` after them. The engine append
 protocol (schema, verdicts, the stage's routes) to every prompt, so a prompt only says when to use
 each verdict. `prompts/retro.md`, `prompts/roadmap.md`, `prompts/lead.md` and
 `prompts/onboard.md` are not stages: they drive the retro, roadmap draft, lead and onboarding sessions. Adding a
-pipeline: [pipelines/README.md](../pipelines/README.md).
+pipeline: [ziggy/pipelines/README.md](../ziggy/pipelines/README.md).
 
 ## Slack (optional, unused)
 

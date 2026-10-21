@@ -1,0 +1,14 @@
+title = "Stop build_record from sharing state between calls"
+type = "fix"
+body = """
+`build_record` leaks data between unrelated records. After creating a record for "First" with no tags, a later call for "Second" with no tags returns tags `["first", "second"]`. Metadata set on one record also shows up on others, and a list passed in by the caller gets modified in place.
+
+Where: `records/builder.py`.
+
+Expected:
+- Every call starts from fresh tags and meta when none are given.
+- The caller's `tags` list and `meta` dict are never mutated.
+- The returned record owns its own copies: changing one record's tags/meta must not affect any other record or the caller's objects.
+- Output for a single, isolated call stays the same (tags get the lowercased name appended; meta gets `"source": "builder"`).
+"""
+check = "python3 -m unittest discover -s hidden_tests -t . -q"

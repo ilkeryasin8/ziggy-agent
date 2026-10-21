@@ -1,0 +1,14 @@
+title = "Fix tax rounding to use exact decimal half-up arithmetic"
+type = "fix"
+body = """
+Our invoices are off by a cent in some cases. `apply_tax` goes through `float` and Python's `round`, which uses banker's rounding on top of binary floating point error. For example, a price of 2.675 with 0% tax comes out as 2.67 instead of 2.68, and half-cent amounts are inconsistent.
+
+Where: `shop/money.py` (`apply_tax`, `sum_with_tax`).
+
+Expected:
+- Money is computed with `decimal.Decimal` and returned as `Decimal` quantized to two places, rounding half up.
+- Inputs may be `Decimal`, `int`, `str`, or `float` (floats should be interpreted by their printed value, so 19.99 means 19.99).
+- `sum_with_tax` applies tax to the subtotal and rounds once at the end, not per line.
+- Existing results for ordinary amounts (e.g. 100 at 10%) must not change in value.
+"""
+check = "python3 -m unittest discover -s hidden_tests -t . -q"

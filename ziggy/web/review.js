@@ -5,22 +5,24 @@
 
 (function () {
   const LS_LAYOUT = "ziggy.review.layout";
+  const LS_ORDER = "ziggy.review.order"; // "tree" or "risk": the order files are listed in
+  const RISK_HIGH = 6; // a file scoring this much gets the amber "riskli" pill; any score above 0 a muted one
   const LS_FILTER = "ziggy.review.findings";
   const SEVERITIES = ["critical", "high", "medium", "low"];
   const DISPOSITIONS = ["fix", "decision", "defer", "dismiss"];
-  const SEV_TR = { critical: "kritik", high: "yüksek", medium: "orta", low: "düşük" };
-  const DISP_TR = { fix: "düzelt", decision: "karar", defer: "ertele", dismiss: "boşver" };
+  const SEV_TR = { critical: t("kritik"), high: t("yüksek"), medium: t("orta"), low: t("düşük") };
+  const DISP_TR = { fix: t("düzelt"), decision: t("karar"), defer: t("ertele"), dismiss: t("boşver") };
   const LS_GUIDE = "ziggy.review.guide";
   const CLASSES = ["important", "nit", "pre-existing"];
-  const CLASS_TR = { important: "önemli", nit: "küçük", "pre-existing": "önceden vardı" };
+  const CLASS_TR = { important: t("önemli"), nit: t("küçük"), "pre-existing": t("önceden vardı") };
   const CLASS_TITLE = {
-    important: "Bu değişiklikte düzeltilmeli",
-    nit: "Yalnızca not; işi geri göndermez",
-    "pre-existing": "Bu değişiklikle gelmedi (deferred.md'ye yazıldı)",
+    important: t("Bu değişiklikte düzeltilmeli"),
+    nit: t("Yalnızca not; işi geri göndermez"),
+    "pre-existing": t("Bu değişiklikle gelmedi (deferred.md'ye yazıldı)"),
   };
   const CLASS_PILL = { important: "bad", nit: "mute", "pre-existing": "info" };
-  const OUTCOME_TR = { fixed: "düzeltti", skipped: "atladı", no_change: "değişiklik gerekmedi" };
-  const CONF_TR = { low: "düşük", medium: "orta", high: "yüksek" };
+  const OUTCOME_TR = { fixed: t("düzeltti"), skipped: t("atladı"), no_change: t("değişiklik gerekmedi") };
+  const CONF_TR = { low: t("düşük"), medium: t("orta"), high: t("yüksek") };
   const SERVED = /\.(png|jpe?g|gif|webp|svg|mp4|webm|mov|log|txt|md|json)$/i; // what /api/files serves
   const MAX_PR_TITLE = 256;
   const MAX_PR_BODY = 60000;
@@ -53,13 +55,18 @@
   const ago = (iso) => {
     if (!iso) return "-";
     const s = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000);
-    if (s < 60) return "az önce";
-    if (s < 3600) return `${Math.floor(s / 60)} dk önce`;
-    if (s < 86400) return `${Math.floor(s / 3600)} sa önce`;
-    return `${Math.floor(s / 86400)} gün önce`;
+    if (s < 60) return t("az önce");
+    if (s < 3600) return t("{0} dk önce", Math.floor(s / 60));
+    if (s < 86400) return t("{0} sa önce", Math.floor(s / 3600));
+    return t("{0} gün önce", Math.floor(s / 86400));
   };
   const short = (sha) => (sha || "").slice(0, 9);
-  const plural = (n, word) => `${n} ${word}`;
+  // "3 dosya" in Turkish, "3 files" in English: the word is the Turkish one the callers pass.
+  const W_FILE = "dosya", W_COMMENT = "yorum"; // i18n-ok: the Turkish words plural() counts
+  const PLURAL_EN = { [W_FILE]: ["file", "files"], [W_COMMENT]: ["comment", "comments"] };
+  const plural = (n, word) => (I18N.lang === "tr" ? `${n} ${word}` : `${n} ${(PLURAL_EN[word] || [word, word])[n === 1 ? 0 : 1]}`);
+  // Why a file scores as risky: the engine's Turkish reasons, through t() ("{n} açık bulgu" and "{n} satır" by patterns).
+  const riskWhy = (f) => (f.risk_why || []).map((x) => t(x)).join(" · ");
   const blobKey = (f) => f.new_blob || "deleted";
 
   async function ask(ctx, text) {
@@ -67,10 +74,10 @@
   }
 
   const clsOf = (x) => (CLASSES.includes(x.class) ? x.class : "important");
-  const confidenceText = (c) => (typeof c === "number" ? `%${Math.round(c * 100)} emin` : c ? `güven: ${CONF_TR[c] || c}` : "");
+  const confidenceText = (c) => (typeof c === "number" ? t("%{0} emin", Math.round(c * 100)) : c ? t("güven: {0}", CONF_TR[c] || c) : "");
   const stageLabel = (r) => `${r.stage}${r.visit ? ` #${r.visit}` : ""}`;
 
-  // A link to the stage run (phase dir) that made a commit or listed evidence: the ticket page's Aşamalar tab.
+  // A link to the stage run (phase dir) that made a commit or listed evidence: the ticket page's stages tab.
   function stageLink(ctx, target, id, r, title) {
     return h("button", { class: "link-btn small", title, onclick: (e) => { e.stopPropagation(); ctx.openStage(target, id, r.stage_dir); } },
       stageLabel(r));
@@ -82,8 +89,8 @@
     return h("ul", { class: "rv-list" }, d.commits.map((c) => h("li", { class: "row" },
       h("button", { class: "ghost small mono", onclick: () => onCommit(c) }, c.short),
       h("span", { class: "grow rv-ellipsis" }, c.subject),
-      c.stage_dir ? stageLink(ctx, target, id, c, "Bu commit'i yapan aşama koşusunu aç")
-        : attributed ? h("span", { class: "muted small", title: "Hiçbir aşama koşusu bu commit'i yapmadı" }, "elle") : "",
+      c.stage_dir ? stageLink(ctx, target, id, c, t("Bu commit'i yapan aşama koşusunu aç"))
+        : attributed ? h("span", { class: "muted small", title: t("Hiçbir aşama koşusu bu commit'i yapmadı") }, t("elle")) : "",
       h("span", { class: "muted small" }, ago(c.at)))));
   }
 
@@ -93,7 +100,7 @@
       const media = g.artifacts.filter((a) => a.exists && (a.kind === "image" || a.kind === "video") && SERVED.test(a.path));
       const rest = g.artifacts.filter((a) => !media.includes(a));
       return h("div", { class: "rv-ev-group" },
-        h("div", { class: "row small" }, stageLink(ctx, target, id, g, "Bu kanıtı listeleyen aşama koşusunu aç"),
+        h("div", { class: "row small" }, stageLink(ctx, target, id, g, t("Bu kanıtı listeleyen aşama koşusunu aç")),
           g.at ? h("span", { class: "muted" }, ago(g.at)) : ""),
         media.length ? h("div", { class: "rv-gallery" }, media.map(evidenceFigure)) : "",
         rest.length ? h("ul", { class: "rv-list rv-ev-files" }, rest.map(evidenceRow)) : "");
@@ -110,9 +117,9 @@
 
   function evidenceRow(a) {
     const cap = a.caption ? ` — ${a.caption}` : "";
-    if (!a.exists) return h("li", { class: "small muted" }, h("span", { class: "mono" }, a.path), " (dosya yok)", cap);
+    if (!a.exists) return h("li", { class: "small muted" }, h("span", { class: "mono" }, a.path), t(" (dosya yok)"), cap);
     if (!SERVED.test(a.path)) return h("li", { class: "small" }, h("span", { class: "mono" }, a.path), cap,
-      h("span", { class: "muted" }, " (panelde açılmaz)"));
+      h("span", { class: "muted" }, t(" (panelde açılmaz)")));
     return h("li", { class: "small" },
       h("a", { class: "mono", href: a.url, target: "_blank", rel: "noopener noreferrer" }, a.path), cap);
   }
@@ -218,6 +225,7 @@
     const S = {
       target: params.target, id: params.id, file: params.file || null, range: params.range || "all", pin: null,
       data: null, sig: "", layout: localStorage.getItem(LS_LAYOUT) === "split" ? "split" : "unified",
+      order: localStorage.getItem(LS_ORDER) === "risk" ? "risk" : "tree",
       filter: loadFilter(), collapsed: new Map(), full: new Set(), diffs: new Map(), showUncommitted: false,
       timer: null, observer: null, alive: true, scrolled: false, editing: 0, selected: new Set(), top: null,
       dismissedOpen: params.show === "dismissed", showDismissed: params.show === "dismissed",
@@ -238,7 +246,7 @@
       }
       if (!S.alive) return;
       if (!S.pin && d.range.kind !== "commit" && d.range.to) S.pin = d.range.to;
-      const sig = JSON.stringify([d.range, d.new_commits, d.files.map((f) => [f.path, f.new_blob, f.viewed]), d.comments,
+      const sig = JSON.stringify([d.range, d.new_commits, d.files.map((f) => [f.path, f.new_blob, f.viewed, f.risk]), d.comments,
         d.rounds.length, d.findings.map((f) => [f.key, f.fixed, f.outcome && f.outcome.outcome]), d.running, d.status,
         d.uncommitted, d.error, d.submit_blocked, d.send_blocked, d.guide && d.guide.stage_dir,
         d.evidence.map((g) => g.artifacts.map((a) => [a.url, a.size])), d.commits.map((c) => c.stage_dir),
@@ -285,13 +293,13 @@
     async function requestChanges() {
       const d = S.data;
       const next = (d.rounds.reduce((m, r) => Math.max(m, r.round), 0) || 0) + 1;
-      const ok = await ask(ctx, `${d.drafts} yorum tur ${next} olarak gönderilsin mi?\n`
-        + `Plana "Review (user, round ${next})" bölümü eklenir ve yeni bir koşu başlar; sonra review adımı yorumların karşılandığını kontrol eder.\n`
-        + "Ajanlar çalışır ve para harcar.");
+      const ok = await ask(ctx, t("{0} yorum tur {1} olarak gönderilsin mi?", d.drafts, next) + "\n"
+        + t('Plana "Review (user, round {0})" bölümü eklenir ve yeni bir koşu başlar; sonra review adımı yorumların karşılandığını kontrol eder.', next) + "\n"
+        + t("Ajanlar çalışır ve para harcar."));
       if (!ok) return;
       try {
         await ctx.api("/api/action", { target: S.target, id: S.id, action: "request_changes" });
-        ctx.toast(`${S.id}: ${d.drafts} yorum gönderildi, yeni koşu başlıyor`);
+        ctx.toast(t("{0}: {1} yorum gönderildi, yeni koşu başlıyor", S.id, d.drafts));
       } catch (e) {
         ctx.toast(`${S.id}: ${e.message}`, true);
       }
@@ -301,16 +309,16 @@
     async function fixSelected() {
       const d = S.data;
       const keys = [...S.selected];
-      const others = d.drafts ? ` ve diğer ${d.drafts} taslağın da gönderilsin` : "";
-      const ok = await ask(ctx, `Uygulayıcıdan ${keys.length} bulguyu düzeltmesi istensin mi${others}?\n`
-        + "Her bulgu için \"düzelt\" yanıtı yazılır ve yeni bir koşu başlar; uygulayıcı her biri için ne yaptığını bildirir, review adımı kontrol eder.\n"
-        + "Ajanlar çalışır ve para harcar.");
+      const others = d.drafts ? t(" ve diğer {0} taslağın da gönderilsin", d.drafts) : "";
+      const ok = await ask(ctx, t("Uygulayıcıdan {0} bulguyu düzeltmesi istensin mi{1}?", keys.length, others) + "\n"
+        + t('Her bulgu için "düzelt" yanıtı yazılır ve yeni bir koşu başlar; uygulayıcı her biri için ne yaptığını bildirir, review adımı kontrol eder.') + "\n"
+        + t("Ajanlar çalışır ve para harcar."));
       if (!ok) return;
       try {
         const out = await ctx.api(`${base}/review`, { op: "findings.fix", ids: keys });
         S.selected.clear();
         await ctx.api("/api/action", { target: S.target, id: S.id, action: "request_changes" });
-        ctx.toast(`${S.id}: ${out.message}; yeni koşu başlıyor`);
+        ctx.toast(t("{0}: {1}; yeni koşu başlıyor", S.id, t(out.message)));
       } catch (e) {
         ctx.toast(`${S.id}: ${e.message}`, true);
       }
@@ -322,15 +330,15 @@
     async function fixGithub() {
       const g = S.data.github;
       const ids = [...S.ghSelected];
-      const ok = await ask(ctx, `GitHub'dan ${ids.length} geri bildirim uygulayıcıya gönderilsin mi?\n`
-        + "Plana \"Review (github, round N)\" bölümü eklenir ve yeni bir koşu başlar; koşu bitince dal push edilir ve draft PR güncellenir"
-        + (g.replies ? ", GitHub'daki yorumlara \"Fixed in …\" yanıtı yazılır.\n" : ".\n")
-        + "Ajanlar çalışır ve para harcar.");
+      const ok = await ask(ctx, t("GitHub'dan {0} geri bildirim uygulayıcıya gönderilsin mi?", ids.length) + "\n"
+        + t('Plana "Review (github, round N)" bölümü eklenir ve yeni bir koşu başlar; koşu bitince dal push edilir ve draft PR güncellenir')
+        + (g.replies ? t(", GitHub'daki yorumlara \"Fixed in …\" yanıtı yazılır.") : ".") + "\n"
+        + t("Ajanlar çalışır ve para harcar."));
       if (!ok) return;
       try {
         await ctx.api("/api/action", { target: S.target, id: S.id, action: "request_changes", github: ids });
         S.ghSelected.clear();
-        ctx.toast(`${S.id}: ${ids.length} geri bildirim gönderildi, yeni koşu başlıyor`);
+        ctx.toast(t("{0}: {1} geri bildirim gönderildi, yeni koşu başlıyor", S.id, ids.length));
       } catch (e) {
         ctx.toast(`${S.id}: ${e.message}`, true);
       }
@@ -341,7 +349,7 @@
       btn.disabled = true;
       try {
         const out = await ctx.api(`${base}/github`, {});
-        ctx.toast(out.new ? `${S.id}: GitHub'dan ${out.new} yeni geri bildirim` : `${S.id}: GitHub'da yeni bir şey yok`);
+        ctx.toast(out.new ? t("{0}: GitHub'dan {1} yeni geri bildirim", S.id, out.new) : t("{0}: GitHub'da yeni bir şey yok", S.id));
       } catch (e) {
         ctx.toast(`${S.id}: ${e.message}`, true);
       }
@@ -359,12 +367,12 @@
 
     async function approve() {
       const d = S.data;
-      const warn = d.drafts ? `${d.drafts} taslak yorum gönderilmeden kalır (taslak olarak durur).` : "";
+      const warn = d.drafts ? t("{0} taslak yorum gönderilmeden kalır (taslak olarak durur).", d.drafts) : "";
       if (d.pr) { // the PR exists: push the new commits, its title and description stay as they are
-        if (!(await ask(ctx, `${S.id}: ${d.branch} dalındaki yeni commit'ler push edilip PR güncellensin mi?\nReady yapmak ve merge sende kalır.${warn ? `\n\n${warn}` : ""}`))) return;
+        if (!(await ask(ctx, t("{0}: {1} dalındaki yeni commit'ler push edilip PR güncellensin mi?", S.id, d.branch) + "\n" + t("Ready yapmak ve merge sende kalır.") + (warn ? `\n\n${warn}` : "")))) return;
         try {
-          await ctx.api("/api/action", { target: S.target, id: S.id, action: "publish" });
-          ctx.toast(`${S.id}: publish başladı`);
+          await ctx.publish({ target: S.target, id: S.id, action: "publish" });
+          ctx.toast(t("{0}: publish başladı", S.id));
         } catch (e) {
           ctx.toast(`${S.id}: ${e.message}`, true);
         }
@@ -395,16 +403,16 @@
       };
       const onKey = (e) => { if (e.key === "Escape") { e.preventDefault(); close(); } };
       const send = async () => {
-        const t = title.value.trim();
-        if (!t) {
-          ctx.toast("PR başlığı boş olamaz", true);
+        const ttl = title.value.trim();
+        if (!ttl) {
+          ctx.toast(t("PR başlığı boş olamaz"), true);
           title.focus();
           return;
         }
         sendBtn.disabled = true;
         try {
-          await ctx.api("/api/action", { target: S.target, id: S.id, action: "publish", title: t, body: body.value });
-          ctx.toast(`${S.id}: publish başladı`);
+          await ctx.publish({ target: S.target, id: S.id, action: "publish", title: ttl, body: body.value });
+          ctx.toast(t("{0}: publish başladı", S.id));
           close();
           load(true);
         } catch (e) {
@@ -412,18 +420,18 @@
           ctx.toast(`${S.id}: ${e.message}`, true);
         }
       };
-      const sendBtn = h("button", { class: "primary", onclick: send }, "Push et, draft PR aç");
+      const sendBtn = h("button", { class: "primary", onclick: send }, t("Push et, draft PR aç"));
       const modal = h("div", { class: "modal", onclick: (e) => { if (e.target === modal) close(); } },
         h("div", { class: "modal-box wide rv-pr-form", role: "dialog", "aria-modal": "true", "aria-label": "Draft PR" },
           h("h3", {}, "Draft PR"),
-          h("div", { class: "muted small" }, `${d.branch} dalı push edilir ve PR draft olarak açılır; ready yapmak ve merge sende kalır. `
-            + "Metin plandan, reviewer rehberinden ve kanıttan derlenen bir taslak; olduğu gibi kullanılır, sonuna ticket satırı eklenir."),
+          h("div", { class: "muted small" }, t("{0} dalı push edilir ve PR draft olarak açılır; ready yapmak ve merge sende kalır. ", d.branch)
+            + t("Metin plandan, reviewer rehberinden ve kanıttan derlenen bir taslak; olduğu gibi kullanılır, sonuna ticket satırı eklenir.")),
           warn ? h("div", { class: "rv-banner warn" }, warn) : "",
-          draft.protected_pending?.length ? h("div", { class: "rv-banner warn" }, "Onay bekleyen korumalı dosya değişikliği var "
-            + `(${draft.protected_pending.join(", ")}): PR onsuz açılır; uygularsan sonra 'PR'ı güncelle' ile gönderirsin.`) : "",
-          h("label", { class: "rv-field" }, h("span", { class: "small muted" }, "Başlık"), title),
-          h("label", { class: "rv-field" }, h("span", { class: "small muted" }, "Açıklama (Markdown)"), body),
-          h("div", { class: "row end" }, h("button", { class: "ghost", onclick: close }, "Vazgeç"), sendBtn)));
+          draft.protected_pending?.length ? h("div", { class: "rv-banner warn" }, t("Onay bekleyen korumalı dosya değişikliği var ")
+            + t("({0}): PR onsuz açılır; uygularsan sonra 'PR'ı güncelle' ile gönderirsin.", draft.protected_pending.join(", "))) : "",
+          h("label", { class: "rv-field" }, h("span", { class: "small muted" }, t("Başlık")), title),
+          h("label", { class: "rv-field" }, h("span", { class: "small muted" }, t("Açıklama (Markdown)")), body),
+          h("div", { class: "row end" }, h("button", { class: "ghost", onclick: close }, t("Vazgeç")), sendBtn)));
       S.closeModal = close; // leaving the page closes the form too
       document.body.append(modal);
       document.addEventListener("keydown", onKey);
@@ -439,7 +447,7 @@
       S.observer = new IntersectionObserver((entries) => {
         for (const e of entries) if (e.isIntersecting && e.target.rvLoad) { S.observer.unobserve(e.target); e.target.rvLoad(); }
       }, { rootMargin: "800px" });
-      const files = treeOrder(d.files);
+      const files = S.order === "risk" ? riskOrder(d.files) : treeOrder(d.files);
       const layout = window.matchMedia("(max-width: 900px)").matches ? "unified" : S.layout;
       const findings = visibleFindings(d);
       S.top = topBar(d);
@@ -447,10 +455,10 @@
         S.top, metaLine(d), toolbar(d, layout), filterBox(d, findings), banners(d),
         d.error ? h("div", { class: "banner bad" }, d.error) : "",
         h("div", { class: "rv-body" },
-          h("nav", { class: "rv-tree" }, tree(files)),
+          h("nav", { class: "rv-tree" }, S.order === "risk" ? riskList(files) : tree(files)),
           h("div", { class: "rv-files" },
             githubCard(d), guideCard(d), evidenceCard(d), dismissedCard(d),
-            files.length ? files.map((f) => fileSection(f, layout, findings, false)) : h("div", { class: "empty" }, "Bu aralıkta değişiklik yok."),
+            files.length ? files.map((f) => fileSection(f, layout, findings, false)) : h("div", { class: "empty" }, t("Bu aralıkta değişiklik yok.")),
             offDiffFindings(findings),
             unverifiedCard(d),
             roundsCard(d))));
@@ -475,31 +483,31 @@
       const important = d.findings.filter((f) => f.open_important);
       const n = S.selected.size;
       return h("div", { class: "rv-top" + (embedded ? " embedded" : "") },
-        embedded ? "" : h("button", { class: "ghost small", onclick: back }, "← Geri"),
+        embedded ? "" : h("button", { class: "ghost small", onclick: back }, t("← Geri")),
         embedded ? "" : h("strong", { class: "mono" }, d.ticket_id),
         embedded ? "" : h("span", { class: "pill" }, d.status || "-"),
         h("span", { class: "grow rv-ellipsis" }, embedded ? "" : d.title || ""),
-        d.drafts ? h("span", { class: "pill info" }, `${d.drafts} taslak`) : "",
-        !n && important.length ? h("button", { class: "small", title: "Son turun hâlâ açık, yanıtlanmamış önemli bulgularını seç",
-          onclick: () => { for (const f of important) S.selected.add(f.key); render(); } }, `Açık önemlileri seç (${important.length})`) : "",
-        n ? h("button", { class: "ghost small", onclick: () => { S.selected.clear(); render(); } }, "Seçimi temizle") : "",
+        d.drafts ? h("span", { class: "pill info" }, t("{0} taslak", d.drafts)) : "",
+        !n && important.length ? h("button", { class: "small", title: t("Son turun hâlâ açık, yanıtlanmamış önemli bulgularını seç"),
+          onclick: () => { for (const f of important) S.selected.add(f.key); render(); } }, t("Açık önemlileri seç ({0})", important.length)) : "",
+        n ? h("button", { class: "ghost small", onclick: () => { S.selected.clear(); render(); } }, t("Seçimi temizle")) : "",
         n ? h("button", { class: "danger small", disabled: !!d.send_blocked,
-          title: d.send_blocked || "Seçilen bulgulara \"düzelt\" yanıtı yazılır ve değişiklik istenir", onclick: fixSelected },
-        `Seçilenleri düzelt (${n})`) : "",
+          title: d.send_blocked || t('Seçilen bulgulara "düzelt" yanıtı yazılır ve değişiklik istenir'), onclick: fixSelected },
+        t("Seçilenleri düzelt ({0})", n)) : "",
         h("button", { class: "small", disabled: !!d.submit_blocked, title: d.submit_blocked || "", onclick: requestChanges },
-          `Değişiklik iste (${d.drafts})`),
-        h("button", { class: "primary small", disabled: !d.approve, title: d.approve ? "" : "Ticket bitmiş olmalı ve koşu sürmemeli",
-          onclick: approve }, d.pr ? "Onayla → PR'ı güncelle" : "Onayla → Draft PR"));
+          t("Değişiklik iste ({0})", d.drafts)),
+        h("button", { class: "primary small", disabled: !d.approve, title: d.approve ? "" : t("Ticket bitmiş olmalı ve koşu sürmemeli"),
+          onclick: approve }, d.pr ? t("Onayla → PR'ı güncelle") : t("Onayla → Draft PR")));
     }
 
     function metaLine(d) {
       const last = d.commits[0];
       return h("div", { class: "rv-meta muted small" },
-        h("span", { class: "mono" }, d.branch || "-"), ` · ${d.base} tabanlı`,
+        h("span", { class: "mono" }, d.branch || "-"), t(" · {0} tabanlı", d.base),
         d.base_commit && d.head ? h("span", { class: "mono" }, ` · ${short(d.base_commit)}..${d.head.short}`) : "",
         " · ", d.commits.length ? h("details", { class: "rv-commits" }, h("summary", {}, `${d.commits.length} commit`),
           commitList(d, ctx, S.target, S.id, (c) => setRange(`commit:${c.hash}`))) : "0 commit",
-        last ? ` · son commit ${ago(last.at)}` : "");
+        last ? t(" · son commit {0}", ago(last.at)) : "");
     }
 
     // What people and CI said on the PR (the panel's PR sync reads it). Every text is someone else's: text nodes only.
@@ -509,28 +517,28 @@
       const n = S.ghSelected.size;
       const waiting = g.items.filter((i) => i.sent_round == null);
       const sent = g.items.filter((i) => i.sent_round != null);
-      const refresh = h("button", { class: "ghost small", title: "PR'ı şimdi GitHub'dan oku", onclick: () => refreshGithub(refresh) }, "Şimdi yenile");
+      const refresh = h("button", { class: "ghost small", title: t("PR'ı şimdi GitHub'dan oku"), onclick: () => refreshGithub(refresh) }, t("Şimdi yenile"));
       const box = h("section", { class: "rv-card rv-github", id: "rv-github" },
         h("div", { class: "row" },
-          h("h3", { class: "grow" }, "GitHub geri bildirimi",
-            h("span", { class: "muted small" }, ` · ${waiting.length} bekliyor${sent.length ? `, ${sent.length} gönderildi` : ""}`)),
-          h("span", { class: "muted small" }, g.last_sync ? `son okuma ${ago(g.last_sync)}` : "henüz okunmadı"),
+          h("h3", { class: "grow" }, t("GitHub geri bildirimi"),
+            h("span", { class: "muted small" }, t(" · {0} bekliyor", waiting.length) + (sent.length ? t(", {0} gönderildi", sent.length) : ""))),
+          h("span", { class: "muted small" }, g.last_sync ? t("son okuma {0}", ago(g.last_sync)) : t("henüz okunmadı")),
           refresh,
           waiting.length ? h("button", { class: "ghost small", onclick: () => {
             if (n === waiting.length) S.ghSelected.clear(); else for (const i of waiting) S.ghSelected.add(i.id);
             render();
-          } }, n === waiting.length ? "Seçimi temizle" : "Hepsini seç") : "",
+          } }, n === waiting.length ? t("Seçimi temizle") : t("Hepsini seç")) : "",
           h("button", { class: "danger small", disabled: !n || !!g.blocked,
-            title: g.blocked || (n ? "Seçilenler plana yazılır ve yeni bir koşu başlar" : "Önce geri bildirim seç"), onclick: fixGithub },
-          `Seçilenleri düzelt (${n})`)),
-        h("div", { class: "muted small" }, "PR'daki inceleme yorumları, sohbet yorumları ve kırmızı CI kontrolleri. Metinler başkalarının; "
-          + "ajana veri olarak (talimat değil) gider. Bot yorumları atlanır (pr_feedback_bots hariç)."),
+            title: g.blocked || (n ? t("Seçilenler plana yazılır ve yeni bir koşu başlar") : t("Önce geri bildirim seç")), onclick: fixGithub },
+          t("Seçilenleri düzelt ({0})", n))),
+        h("div", { class: "muted small" }, t("PR'daki inceleme yorumları, sohbet yorumları ve kırmızı CI kontrolleri. Metinler başkalarının; ")
+          + t("ajana veri olarak (talimat değil) gider. Bot yorumları atlanır (pr_feedback_bots hariç).")),
         g.items.length ? h("div", { class: "rv-gh-list" }, [...waiting, ...sent.slice().reverse()].map(githubItem))
-          : h("div", { class: "empty small" }, "PR'da henüz yorum ya da kırmızı kontrol yok."));
+          : h("div", { class: "empty small" }, t("PR'da henüz yorum ya da kırmızı kontrol yok.")));
       return box;
     }
 
-    const GH_KIND = { review_comment: "satır yorumu", issue_comment: "yorum", review: "review", ci: "CI" };
+    const GH_KIND = { review_comment: t("satır yorumu"), issue_comment: t("yorum"), review: "review", ci: "CI" };
     const safeUrl = (u) => (/^https:\/\//.test(u || "") ? u : null);
 
     function githubItem(i) {
@@ -541,28 +549,28 @@
       const url = safeUrl(i.url);
       return h("div", { class: "rv-finding rv-gh" + (open ? "" : " fixed") + (i.kind === "ci" ? " ci" : "") },
         h("div", { class: "row small" },
-          open ? h("label", { class: "rv-check", title: "\"Seçilenleri düzelt\" için seç" },
-            h("input", { type: "checkbox", checked: S.ghSelected.has(i.id), "aria-label": `${i.id} seç`, onchange: (e) => {
+          open ? h("label", { class: "rv-check", title: t('"Seçilenleri düzelt" için seç') },
+            h("input", { type: "checkbox", checked: S.ghSelected.has(i.id), "aria-label": t("{0} seç", i.id), onchange: (e) => {
               if (e.target.checked) S.ghSelected.add(i.id); else S.ghSelected.delete(i.id);
               render();
             } })) : "",
           h("span", { class: `pill ${i.kind === "ci" ? "bad" : "info"}` }, GH_KIND[i.kind] || i.kind),
           h("strong", {}, i.kind === "ci" ? i.author : `@${i.author}`),
-          where ? (inDiff ? h("button", { class: "link-btn mono", title: "Dosyaya git", onclick: () => scrollTo(i.path) }, where)
+          where ? (inDiff ? h("button", { class: "link-btn mono", title: t("Dosyaya git"), onclick: () => scrollTo(i.path) }, where)
             : h("span", { class: "mono" }, where)) : "",
           i.kind === "review" && i.state ? h("span", { class: "pill mute" }, i.state.toLowerCase()) : "",
           h("span", { class: "muted" }, ago(i.created_at)),
-          i.sent_round != null ? h("span", { class: "pill mute" }, `tur ${i.sent_round}'de gönderildi`) : "",
-          i.fixed_sha ? h("span", { class: "pill ok", title: i.fixed_sha }, `düzeltildi ${short(i.fixed_sha)}`) : "",
-          i.replied_at ? h("span", { class: "pill ok", title: i.replied_at }, "GitHub'da yanıtlandı") : "",
+          i.sent_round != null ? h("span", { class: "pill mute" }, t("tur {0}'de gönderildi", i.sent_round)) : "",
+          i.fixed_sha ? h("span", { class: "pill ok", title: i.fixed_sha }, t("düzeltildi {0}", short(i.fixed_sha))) : "",
+          i.replied_at ? h("span", { class: "pill ok", title: i.replied_at }, t("GitHub'da yanıtlandı")) : "",
           h("span", { class: "grow" }),
-          url ? h("a", { href: url, target: "_blank", rel: "noopener noreferrer", class: "small" }, "GitHub'da aç") : ""),
+          url ? h("a", { href: url, target: "_blank", rel: "noopener noreferrer", class: "small" }, t("GitHub'da aç")) : ""),
         i.kind === "ci" ? ciLog(i) : h("div", { class: "rv-comment-body" }, i.body));
     }
 
     // A re-render (a checkbox, the poll) keeps the logs the user opened open.
     function ciLog(i) {
-      const box = h("details", { class: "small" }, h("summary", {}, `Başarısız log (son ${i.body.split("\n").length} satır)`),
+      const box = h("details", { class: "small" }, h("summary", {}, t("Başarısız log (son {0} satır)", i.body.split("\n").length)),
         h("pre", { class: "rv-gh-log" }, i.body));
       box.open = S.ghLogs.has(i.id);
       box.addEventListener("toggle", () => { if (box.open) S.ghLogs.add(i.id); else S.ghLogs.delete(i.id); });
@@ -573,13 +581,13 @@
       const g = d.guide;
       if (!g || !g.entries.length) return "";
       const box = h("details", { class: "rv-card rv-guide" },
-        h("summary", {}, h("strong", {}, "Reviewer rehberi"), h("span", { class: "muted" }, ` · ${g.entries.length} durak, okuma sırasıyla`)),
+        h("summary", {}, h("strong", {}, t("Reviewer rehberi")), h("span", { class: "muted" }, t(" · {0} durak, okuma sırasıyla", g.entries.length))),
         g.summary ? h("p", { class: "rv-guide-summary" }, g.summary) : "",
         h("ol", { class: "rv-guide-list" }, g.entries.map((e) => h("li", {},
-          e.path ? h("button", { class: "link-btn mono", title: "Dosyaya git", onclick: () => scrollTo(e.path) }, e.file)
-            : h("span", { class: "mono muted", title: "Bu aralıktaki değişen dosyalarda yok" }, e.file),
+          e.path ? h("button", { class: "link-btn mono", title: t("Dosyaya git"), onclick: () => scrollTo(e.path) }, e.file)
+            : h("span", { class: "mono muted", title: t("Bu aralıktaki değişen dosyalarda yok") }, e.file),
           e.summary ? h("div", {}, e.summary) : "",
-          e.how_to_verify ? h("div", { class: "muted small" }, h("strong", {}, "Nasıl doğrulanır: "), e.how_to_verify) : ""))));
+          e.how_to_verify ? h("div", { class: "muted small" }, h("strong", {}, t("Nasıl doğrulanır: ")), e.how_to_verify) : ""))));
       box.open = localStorage.getItem(LS_GUIDE) !== "closed";
       box.addEventListener("toggle", () => localStorage.setItem(LS_GUIDE, box.open ? "open" : "closed"));
       return box;
@@ -589,7 +597,7 @@
       if (!d.evidence.length) return "";
       const n = d.evidence.reduce((m, g) => m + g.artifacts.length, 0);
       const box = h("details", { class: "rv-card rv-evidence" },
-        h("summary", {}, h("strong", {}, "Kanıt"), h("span", { class: "muted" }, ` · ${plural(n, "dosya")}`)),
+        h("summary", {}, h("strong", {}, t("Kanıt")), h("span", { class: "muted" }, ` · ${plural(n, W_FILE)}`)),
         evidenceView(d.evidence, ctx, S.target, S.id));
       box.open = S.evidenceOpen !== false;
       box.addEventListener("toggle", () => { S.evidenceOpen = box.open; });
@@ -599,8 +607,8 @@
     function unverifiedCard(d) {
       if (!d.unverified.length) return "";
       return h("details", { class: "rv-card" },
-        h("summary", {}, `Doğrulanamayan adaylar (${d.unverified.length})`),
-        h("div", { class: "muted small" }, "Son review'un doğrulama adımı bunları teyit edemedi; bulgu sayılmadılar, kayıt için listeleniyor."),
+        h("summary", {}, t("Doğrulanamayan adaylar ({0})", d.unverified.length)),
+        h("div", { class: "muted small" }, t("Son review'un doğrulama adımı bunları teyit edemedi; bulgu sayılmadılar, kayıt için listeleniyor.")),
         h("ul", { class: "rv-list" }, d.unverified.map((u) => h("li", { class: "small" },
           u.location ? h("span", { class: "mono" }, `${u.location} — `) : "", u.summary,
           u.reason ? h("span", { class: "muted" }, ` (${u.reason})`) : ""))));
@@ -608,14 +616,14 @@
 
     function rangeSelect(d) {
       const sel = h("select", { class: "rv-range", onchange: (e) => setRange(e.target.value) });
-      sel.append(h("option", { value: "all" }, `Tüm değişiklikler (${d.commits.length} commit)`));
+      sel.append(h("option", { value: "all" }, t("Tüm değişiklikler ({0} commit)", d.commits.length)));
       const seen = new Set([d.head && d.head.hash]);
       const since = d.points.slice().reverse().filter((p) => !seen.has(p.head) && seen.add(p.head));
-      const group = h("optgroup", { label: "Bir review'dan beri" },
-        since.map((p) => h("option", { value: p.spec }, `${p.label} sonrası (${p.head.slice(0, 7)})`)));
-      if (d.range.kind === "since" && !since.some((p) => p.spec === d.range.spec)) group.append(h("option", { value: d.range.spec }, d.range.label));
+      const group = h("optgroup", { label: t("Bir review'dan beri") },
+        since.map((p) => h("option", { value: p.spec }, t("{0} sonrası ({1})", t(p.label), p.head.slice(0, 7)))));
+      if (d.range.kind === "since" && !since.some((p) => p.spec === d.range.spec)) group.append(h("option", { value: d.range.spec }, t(d.range.label)));
       if (group.children.length) sel.append(group);
-      if (d.commits.length) sel.append(h("optgroup", { label: "Tek commit" },
+      if (d.commits.length) sel.append(h("optgroup", { label: t("Tek commit") },
         d.commits.map((c) => h("option", { value: `commit:${c.hash}` }, `${c.short} ${c.subject.slice(0, 70)}`))));
       sel.value = d.range.spec;
       return sel;
@@ -624,18 +632,22 @@
     function toolbar(d, layout) {
       const viewed = d.files.filter((f) => f.viewed === "viewed").length;
       const setLayout = (l) => { S.layout = l; localStorage.setItem(LS_LAYOUT, l); render(); };
+      const setOrder = (o) => { S.order = o; try { localStorage.setItem(LS_ORDER, o); } catch { /* private mode */ } render(); };
       const allCollapsed = (v) => { for (const f of d.files) S.collapsed.set(f.path, v); render(); };
       return h("div", { class: "rv-toolbar row" },
         rangeSelect(d),
-        h("span", {}, plural(d.totals.files, "dosya"), " ", h("span", { class: "rv-add" }, `+${d.totals.additions}`), " ",
+        h("span", {}, plural(d.totals.files, W_FILE), " ", h("span", { class: "rv-add" }, `+${d.totals.additions}`), " ",
           h("span", { class: "rv-del" }, `−${d.totals.deletions}`)),
-        h("span", { class: "muted" }, `görüldü ${viewed}/${d.files.length}`),
+        h("span", { class: "muted" }, t("görüldü {0}/{1}", viewed, d.files.length)),
         h("span", { class: "grow" }),
+        h("div", { class: "rv-seg", title: t("Risk sırası: açık bulgusu, CI/ajan dosyası, bağımlılığı ya da büyük değişikliği olan dosyalar önce") },
+          h("button", { class: "small" + (S.order === "tree" ? " on" : ""), onclick: () => setOrder("tree") }, t("Ağaç")),
+          h("button", { class: "small" + (S.order === "risk" ? " on" : ""), onclick: () => setOrder("risk") }, t("Risk sırası"))),
         h("div", { class: "rv-seg" },
-          h("button", { class: "small" + (layout === "unified" ? " on" : ""), onclick: () => setLayout("unified") }, "Tek sütun"),
-          h("button", { class: "small" + (layout === "split" ? " on" : ""), onclick: () => setLayout("split") }, "Yan yana")),
-        h("button", { class: "ghost small", onclick: () => allCollapsed(true) }, "Tümünü daralt"),
-        h("button", { class: "ghost small", onclick: () => allCollapsed(false) }, "Tümünü aç"));
+          h("button", { class: "small" + (layout === "unified" ? " on" : ""), onclick: () => setLayout("unified") }, t("Tek sütun")),
+          h("button", { class: "small" + (layout === "split" ? " on" : ""), onclick: () => setLayout("split") }, t("Yan yana"))),
+        h("button", { class: "ghost small", onclick: () => allCollapsed(true) }, t("Tümünü daralt")),
+        h("button", { class: "ghost small", onclick: () => allCollapsed(false) }, t("Tümünü aç")));
     }
 
     function visibleFindings(d) {
@@ -655,16 +667,16 @@
         h("input", { type: "checkbox", checked: on, onchange: (e) => { set(e.target.checked); save(); } }), label);
       const toggle = (list, v) => (on) => { const i = list.indexOf(v); if (on && i < 0) list.push(v); if (!on && i >= 0) list.splice(i, 1); };
       const box = h("details", { class: "rv-filter" },
-        h("summary", {}, `AI review bulguları — ${d.findings.length} bulgudan ${shown.length} gösteriliyor`),
+        h("summary", {}, t("AI review bulguları — {0} bulgudan {1} gösteriliyor", d.findings.length, shown.length)),
         h("div", { class: "row small" },
-          check("göster", f.show, (v) => { f.show = v; }),
-          check("yalnız son tur", f.latestOnly, (v) => { f.latestOnly = v; }),
-          check("düzeltilenleri gizle", f.hideFixed, (v) => { f.hideFixed = v; })),
-        h("div", { class: "row small" }, h("span", { class: "muted" }, "Sınıf:"),
+          check(t("göster"), f.show, (v) => { f.show = v; }),
+          check(t("yalnız son tur"), f.latestOnly, (v) => { f.latestOnly = v; }),
+          check(t("düzeltilenleri gizle"), f.hideFixed, (v) => { f.hideFixed = v; })),
+        h("div", { class: "row small" }, h("span", { class: "muted" }, t("Sınıf:")),
           CLASSES.map((c) => check(CLASS_TR[c], f.classes.includes(c), toggle(f.classes, c)))),
-        h("div", { class: "row small" }, h("span", { class: "muted" }, "Önem:"),
+        h("div", { class: "row small" }, h("span", { class: "muted" }, t("Önem:")),
           SEVERITIES.map((s) => check(SEV_TR[s], f.severities.includes(s), toggle(f.severities, s)))),
-        h("div", { class: "row small" }, h("span", { class: "muted" }, "Karar:"),
+        h("div", { class: "row small" }, h("span", { class: "muted" }, t("Karar:")),
           DISPOSITIONS.map((s) => check(DISP_TR[s], f.dispositions.includes(s), toggle(f.dispositions, s)))));
       box.open = !!S.filterOpen;
       box.addEventListener("toggle", () => { S.filterOpen = box.open; });
@@ -674,17 +686,17 @@
     function banners(d) {
       const out = [];
       if (d.new_commits && d.range.kind !== "commit") out.push(h("div", { class: "rv-banner info row" },
-        `Bu sayfa açıldığından beri dalda ${d.new_commits} yeni commit var.`,
-        h("button", { class: "small", onclick: () => { S.pin = null; load(true); } }, d.new_commits === 1 ? "Onu göster" : "Onları göster")));
+        t("Bu sayfa açıldığından beri dalda {0} yeni commit var.", d.new_commits),
+        h("button", { class: "small", onclick: () => { S.pin = null; load(true); } }, d.new_commits === 1 ? t("Onu göster") : t("Onları göster"))));
       if (d.running) out.push(h("div", { class: "rv-banner info" },
-        `Bu ticket'ta koşu sürüyor${d.stage ? ` (${d.stage})` : ""}. Taslak yazabilirsin; değişiklik isteme koşu bitince açılır.`));
+        t("Bu ticket'ta koşu sürüyor{0}. Taslak yazabilirsin; değişiklik isteme koşu bitince açılır.", d.stage ? ` (${d.stage})` : "")));
       if (d.uncommitted.length) {
         const tracked = d.uncommitted.filter((u) => u.status !== "untracked");
         const untracked = d.uncommitted.filter((u) => u.status === "untracked");
         out.push(h("div", { class: "rv-banner warn" },
-          h("div", { class: "row" }, `Worktree'de ${d.uncommitted.length} commit'lenmemiş dosya var. PR'a girmezler.`,
+          h("div", { class: "row" }, t("Worktree'de {0} commit'lenmemiş dosya var. PR'a girmezler.", d.uncommitted.length),
             h("button", { class: "small", onclick: () => { S.showUncommitted = !S.showUncommitted; render(); } },
-              S.showUncommitted ? "Gizle" : "Göster")),
+              S.showUncommitted ? t("Gizle") : t("Göster"))),
           S.showUncommitted && d.head ? h("div", { class: "rv-uncommitted" },
             tracked.map((u) => fileSection({ path: u.path, old_path: null, status: "modified", additions: null, deletions: null,
               binary: false, image: false, generated: false, from: d.head.hash, to: "worktree", uncommitted: u.status }, "unified", [], true)),
@@ -717,6 +729,29 @@
       };
       walk(buildTree(files));
       return out;
+    }
+
+    // Highest risk first (then the larger change, then the path); seen files keep their place, ticked.
+    function riskOrder(files) {
+      const size = (f) => (f.additions || 0) + (f.deletions || 0);
+      return files.slice().sort((a, b) => (b.risk || 0) - (a.risk || 0) || size(b) - size(a) || a.path.localeCompare(b.path));
+    }
+
+    function riskList(files) {
+      return files.map((f) => {
+        const mark = f.viewed === "viewed" ? "✓" : f.viewed === "changed" ? "•" : "";
+        return h("a", { class: `rv-tfile rv-v-${f.viewed}`, href: hash(S.target, S.id, f.path, S.range), title: `${f.path}${f.risk_why?.length ? `\n${riskWhy(f)}` : ""}`,
+          onclick: (e) => { e.preventDefault(); scrollTo(f.path); } },
+        h("span", { class: `rv-risk${(f.risk || 0) >= RISK_HIGH ? " high" : ""}` }, String(f.risk || 0)),
+        h("span", { class: "rv-ellipsis" }, f.path.slice(f.path.lastIndexOf("/") + 1)),
+        h("span", { class: "rv-mark" }, mark));
+      });
+    }
+
+    function riskPill(f) {
+      if (!f.risk) return "";
+      return h("span", { class: `pill ${f.risk >= RISK_HIGH ? "warn" : "mute"}`, title: riskWhy(f) },
+        f.risk >= RISK_HIGH ? t("riskli · {0}", f.risk) : t("risk {0}", f.risk));
     }
 
     function tree(files) {
@@ -774,19 +809,20 @@
           const on = e.target.checked;
           S.collapsed.set(f.path, on);
           await post({ op: "viewed.set", path: f.path, blob: on ? blobKey(f) : null });
-        } }), "Görüldü", f.viewed === "changed" ? h("span", { class: "pill warn" }, "değişti") : "");
+        } }), t("Görüldü"), f.viewed === "changed" ? h("span", { class: "pill warn" }, t("değişti")) : "");
       const section = h("section", { class: "rv-file" + (collapsed ? " collapsed" : ""), "data-path": uncommitted ? null : f.path },
         h("header", { class: "rv-file-head row" },
           h("button", { class: "ghost small", onclick: toggle, "aria-expanded": String(!collapsed) }, collapsed ? "▸" : "▾"),
           h("span", { class: `rv-st rv-st-${f.status}` }, uncommitted ? f.uncommitted : STATUS_LETTER[f.status] || "M"),
           h("span", { class: "mono grow rv-ellipsis" }, f.old_path ? `${f.old_path} → ${f.path}` : f.path),
-          f.generated ? h("span", { class: "pill mute" }, "üretilmiş") : "",
+          f.generated ? h("span", { class: "pill mute" }, t("üretilmiş")) : "",
+          uncommitted ? "" : riskPill(f),
           f.additions !== null && f.additions !== undefined ? h("span", { class: "small" },
             h("span", { class: "rv-add" }, `+${f.additions}`), " ", h("span", { class: "rv-del" }, `−${f.deletions}`)) : "",
           !f.binary && !collapsed ? h("button", { class: "ghost small", onclick: () => {
             if (S.full.has(f.path)) S.full.delete(f.path); else S.full.add(f.path);
             render();
-          } }, S.full.has(f.path) ? "Yalnız değişenler" : "Tüm dosya") : "",
+          } }, S.full.has(f.path) ? t("Yalnız değişenler") : t("Tüm dosya")) : "",
           viewedBox),
         collapsed ? "" : body);
       if (collapsed) return section;
@@ -795,10 +831,10 @@
         return section;
       }
       if (f.binary) {
-        body.append(h("div", { class: "muted small rv-note" }, "Binary dosya; metin farkı yok."));
+        body.append(h("div", { class: "muted small rv-note" }, t("Binary dosya; metin farkı yok.")));
         return section;
       }
-      body.append(h("div", { class: "muted small rv-note" }, "Fark yükleniyor…"));
+      body.append(h("div", { class: "muted small rv-note" }, t("Fark yükleniyor…")));
       body.rvLoad = async () => {
         try {
           const diff = await fetchDiff(f, from, to, S.full.has(f.path));
@@ -832,8 +868,8 @@
       const src = (rev, path) => `${base}/blob?${new URLSearchParams({ rev, path })}`;
       const fig = (cap, url) => h("figure", { class: "rv-img" }, h("img", { src: url, loading: "lazy", alt: cap }), h("figcaption", {}, cap));
       return h("div", { class: "row rv-images" },
-        f.status !== "added" ? fig("Önce", src(d.range.from, f.old_path || f.path)) : "",
-        f.status !== "deleted" ? fig(f.status === "added" ? "Eklendi" : "Sonra", src(d.range.to, f.path)) : "");
+        f.status !== "added" ? fig(t("Önce"), src(d.range.from, f.old_path || f.path)) : "",
+        f.status !== "deleted" ? fig(f.status === "added" ? t("Eklendi") : t("Sonra"), src(d.range.to, f.path)) : "");
     }
 
     // --- diff table -------------------------------------------------------------------------------
@@ -841,7 +877,7 @@
     function diffView(f, diff, layout, findings, uncommitted) {
       const d = S.data;
       const wrap = h("div", { class: "rv-diff" });
-      if (diff.binary) return h("div", { class: "muted small rv-note" }, "Binary dosya; metin farkı yok.");
+      if (diff.binary) return h("div", { class: "muted small rv-note" }, t("Binary dosya; metin farkı yok."));
       // Anchors: line comments while their text still matches the line, findings at the last line of their range.
       const anchors = new Map();
       const add = (k, node) => { if (!anchors.has(k)) anchors.set(k, []); anchors.get(k).push(node); };
@@ -856,7 +892,7 @@
           const k = `${c.side}:${c.line}`;
           if (c.line && texts.has(k) && (c.line_text === null || texts.get(k) === c.line_text)) add(k, commentView(c));
           else top.push(h("div", { class: "rv-outdated" },
-            h("div", { class: "muted small" }, c.line ? `eski satır ${c.line} · ${c.line_text || ""}` : "dosya yorumu"), commentView(c)));
+            h("div", { class: "muted small" }, c.line ? t("eski satır {0} · {1}", c.line, c.line_text || "") : t("dosya yorumu")), commentView(c)));
         }
         for (const x of findings) {
           const k = `new:${x.end_line || x.line}`;
@@ -864,8 +900,8 @@
           else top.push(findingCard(x));
         }
       }
-      if (top.length) wrap.append(h("div", { class: "rv-top-notes" }, h("div", { class: "muted small" }, "Bu diffte satırı olmayanlar"), top));
-      if (diff.truncated) wrap.append(h("div", { class: "rv-banner warn" }, "Fark çok uzun; ilk 20000 satır gösteriliyor."));
+      if (top.length) wrap.append(h("div", { class: "rv-top-notes" }, h("div", { class: "muted small" }, t("Bu diffte satırı olmayanlar")), top));
+      if (diff.truncated) wrap.append(h("div", { class: "rv-banner warn" }, t("Fark çok uzun; ilk 20000 satır gösteriliyor.")));
       const table = h("table", { class: `rv-table rv-${layout}` });
       const cols = layout === "split" ? 6 : 4;
       // table-layout: fixed takes column widths from the first row, which is a colspan hunk header;
@@ -879,7 +915,7 @@
         return nodes.length ? h("tr", { class: "rv-anchor" }, h("td", { colspan: String(cols) }, nodes)) : null;
       };
       const plus = (l, side) => uncommitted || l.t === "note" ? h("td", { class: "rv-plus" })
-        : h("td", { class: "rv-plus" }, h("button", { class: "rv-plus-btn", title: "Yorum ekle",
+        : h("td", { class: "rv-plus" }, h("button", { class: "rv-plus-btn", title: t("Yorum ekle"),
           onclick: (e) => openEditor(e.target.closest("tr"), cols, {
             path: f.path, line: side === "old" ? l.o : l.n, side, line_text: l.s, commit_sha: d.range.to,
           }) }, "+"));
@@ -912,7 +948,7 @@
           }
         }
       }
-      if (!diff.hunks.length) wrap.append(h("div", { class: "muted small rv-note" }, "İçerik farkı yok (yalnız ad ya da kip değişmiş)."));
+      if (!diff.hunks.length) wrap.append(h("div", { class: "muted small rv-note" }, t("İçerik farkı yok (yalnız ad ya da kip değişmiş).")));
       else wrap.append(table);
       return wrap;
     }
@@ -942,7 +978,7 @@
     // --- comments and findings --------------------------------------------------------------------
 
     function openEditor(afterRow, cols, fields, initial, onSave) {
-      const ta = h("textarea", { rows: "4", placeholder: "Yorumun (Cmd/Ctrl+Enter kaydeder, Esc vazgeçer)" });
+      const ta = h("textarea", { rows: "4", placeholder: t("Yorumun (Cmd/Ctrl+Enter kaydeder, Esc vazgeçer)") });
       ta.value = initial || "";
       const close = () => { S.editing = Math.max(0, S.editing - 1); holder.remove(); };
       const save = async () => {
@@ -957,8 +993,8 @@
         if (e.key === "Escape") { e.preventDefault(); close(); }
       });
       const box = h("div", { class: "rv-editor" }, ta, h("div", { class: "row end" },
-        h("button", { class: "ghost small", onclick: close }, "Vazgeç"),
-        h("button", { class: "primary small", onclick: save }, "Taslak kaydet")));
+        h("button", { class: "ghost small", onclick: close }, t("Vazgeç")),
+        h("button", { class: "primary small", onclick: save }, t("Taslak kaydet"))));
       const holder = afterRow && afterRow.tagName === "TR" ? h("tr", { class: "rv-anchor" }, h("td", { colspan: String(cols) }, box)) : box;
       if (afterRow) afterRow.after(holder);
       S.editing++;
@@ -970,15 +1006,15 @@
       const sent = c.round !== null && c.round !== undefined;
       const node = h("div", { class: "rv-comment" + (sent ? " sent" : " draft") },
         h("div", { class: "row small" },
-          h("strong", {}, c.author || "sen"), h("span", { class: "muted" }, ago(c.updated_at || c.created_at)),
-          sent ? h("span", { class: "pill ok" }, `tur ${c.round} ile gönderildi`) : h("span", { class: "pill info" }, "taslak"),
-          c.finding_action ? h("span", { class: "pill warn" }, c.finding_action === "fix" ? "düzeltilsin" : "boşverilsin") : "",
+          h("strong", {}, c.author || t("sen")), h("span", { class: "muted" }, ago(c.updated_at || c.created_at)),
+          sent ? h("span", { class: "pill ok" }, t("tur {0} ile gönderildi", c.round)) : h("span", { class: "pill info" }, t("taslak")),
+          c.finding_action ? h("span", { class: "pill warn" }, c.finding_action === "fix" ? t("düzeltilsin") : t("boşverilsin")) : "",
           h("span", { class: "grow" }),
           sent ? "" : h("button", { class: "ghost small", onclick: () => {
             const holder = openEditor(null, 0, null, c.body, async (body) => !!(await post({ op: "comment.edit", id: c.id, body })));
             node.after(holder);
-          } }, "Düzenle"),
-          sent ? "" : h("button", { class: "ghost small", onclick: () => post({ op: "comment.delete", id: c.id }) }, "Sil")),
+          } }, t("Düzenle")),
+          sent ? "" : h("button", { class: "ghost small", onclick: () => post({ op: "comment.delete", id: c.id }) }, t("Sil"))),
         c.body ? h("div", { class: "rv-comment-body" }, c.body) : "");
       return node;
     }
@@ -993,47 +1029,47 @@
       const out = x.outcome && !x.fixed ? x.outcome : null;
       const card = h("div", { class: "rv-finding" + (x.fixed ? " fixed" : "") },
         h("div", { class: "row small" },
-          x.selectable ? h("label", { class: "rv-check", title: "\"Seçilenleri düzelt\" için seç" },
-            h("input", { type: "checkbox", checked: S.selected.has(x.key), "aria-label": `${x.id} seç`,
+          x.selectable ? h("label", { class: "rv-check", title: t('"Seçilenleri düzelt" için seç') },
+            h("input", { type: "checkbox", checked: S.selected.has(x.key), "aria-label": t("{0} seç", x.id),
               onchange: (e) => toggleSelected(x, e.target.checked) })) : "",
           h("span", { class: "pill info" }, "AI review"), h("span", { class: "mono" }, x.id),
           h("span", { class: `pill ${CLASS_PILL[cls]}`, title: CLASS_TITLE[cls] }, CLASS_TR[cls]),
           h("span", { class: `pill ${sevClass(x.severity)}` }, SEV_TR[x.severity] || x.severity),
           h("span", { class: "pill mute" }, x.kind), h("span", { class: "pill mute" }, DISP_TR[x.disposition] || x.disposition),
           x.confidence !== null && x.confidence !== undefined ? h("span", { class: "muted" }, confidenceText(x.confidence)) : "",
-          x.verified === true ? h("span", { class: "pill ok", title: "Review konumu açıp sonucu bu diff üzerinde teyit etti" }, "doğrulandı") : "",
-          x.verified === false ? h("span", { class: "pill warn", title: "Review bu bulguyu teyit etmedi" }, "doğrulanmadı") : "",
+          x.verified === true ? h("span", { class: "pill ok", title: t("Review konumu açıp sonucu bu diff üzerinde teyit etti") }, t("doğrulandı")) : "",
+          x.verified === false ? h("span", { class: "pill warn", title: t("Review bu bulguyu teyit etmedi") }, t("doğrulanmadı")) : "",
           out ? h("span", { class: `pill ${out.outcome === "fixed" ? "ok" : "mute"}`, title: out.note || "" },
-            `uygulayıcı: ${OUTCOME_TR[out.outcome] || out.outcome}`) : "",
-          x.fixed ? h("span", { class: "pill ok" }, "sonra düzeltildi") : "",
-          h("span", { class: "muted" }, `tur ${x.round}`)),
+            t("uygulayıcı: {0}", OUTCOME_TR[out.outcome] || out.outcome)) : "",
+          x.fixed ? h("span", { class: "pill ok" }, t("sonra düzeltildi")) : "",
+          h("span", { class: "muted" }, t("tur {0}", x.round))),
         h("div", { class: "rv-finding-summary" }, x.summary),
         x.evidence || x.reason || x.location || (out && out.note) ? h("details", { class: "small" },
-          h("summary", {}, x.verified ? "Neden işaretlendi (doğrulandı)" : "Ayrıntı"),
+          h("summary", {}, x.verified ? t("Neden işaretlendi (doğrulandı)") : t("Ayrıntı")),
           x.location ? h("div", { class: "mono" }, x.location) : "",
           x.evidence ? h("div", { class: "rv-comment-body" }, x.evidence) : "",
           x.reason ? h("div", { class: "rv-comment-body muted" }, x.reason) : "",
-          out && out.note ? h("div", { class: "rv-comment-body" }, h("strong", {}, "Uygulayıcı: "), out.note) : "") : "",
+          out && out.note ? h("div", { class: "rv-comment-body" }, h("strong", {}, t("Uygulayıcı: ")), out.note) : "") : "",
         replies.map(commentView));
       const actions = h("div", { class: "row" },
         h("button", { class: "ghost small", onclick: () => {
           const holder = openEditor(null, 0, null, "", async (body) => !!(await reply({ body })));
           actions.after(holder);
-        } }, "Yanıtla"),
-        (x.disposition !== "fix" || x.fixed) && !has("fix") ? h("button", { class: "small", onclick: () => reply({ body: "", finding_action: "fix" }) }, "Düzelt") : "",
-        x.disposition === "fix" && !x.fixed && !has("dismiss") ? h("button", { class: "small", onclick: () => reply({ body: "", finding_action: "dismiss" }) }, "Boşver") : "");
+        } }, t("Yanıtla")),
+        (x.disposition !== "fix" || x.fixed) && !has("fix") ? h("button", { class: "small", onclick: () => reply({ body: "", finding_action: "fix" }) }, t("Düzelt")) : "",
+        x.disposition === "fix" && !x.fixed && !has("dismiss") ? h("button", { class: "small", onclick: () => reply({ body: "", finding_action: "dismiss" }) }, t("Boşver")) : "");
       card.append(actions);
       return card;
     }
 
-    // What the AI review dismissed stays in view: each card keeps its "Düzelt" reply and its "Seçilenleri düzelt" box.
+    // What the AI review dismissed stays in view: each card keeps its fix reply and its select-to-fix box.
     function dismissedCard(d) {
       const list = d.findings.filter((x) => x.dismissed);
       if (!list.length) return "";
       const box = h("details", { class: "rv-card", id: "rv-dismissed" },
-        h("summary", {}, h("strong", {}, `Review ${list.length} bulguyu eledi`)),
-        h("div", { class: "muted small" }, "AI review bunlara \"boşver\" dedi; gerekçesi her bulgunun Ayrıntı'sında. "
-          + "Katılmadığını Düzelt ile ya da seçip \"Seçilenleri düzelt\" ile uygulayıcıya gönder."),
+        h("summary", {}, h("strong", {}, t("Review {0} bulguyu eledi", list.length))),
+        h("div", { class: "muted small" }, t('AI review bunlara "boşver" dedi; gerekçesi her bulgunun Ayrıntı\'sında. ')
+          + t('Katılmadığını Düzelt ile ya da seçip "Seçilenleri düzelt" ile uygulayıcıya gönder.')),
         list.map(findingCard));
       box.open = S.dismissedOpen;
       box.addEventListener("toggle", () => { S.dismissedOpen = box.open; });
@@ -1043,18 +1079,18 @@
     function offDiffFindings(findings) {
       const rest = findings.filter((x) => !x.path);
       if (!rest.length) return "";
-      return h("section", { class: "rv-card" }, h("h3", {}, `Değişen bir dosyada olmayan bulgular (${rest.length})`), rest.map(findingCard));
+      return h("section", { class: "rv-card" }, h("h3", {}, t("Değişen bir dosyada olmayan bulgular ({0})", rest.length)), rest.map(findingCard));
     }
 
     function roundsCard(d) {
       if (!d.rounds.length) return "";
-      return h("section", { class: "rv-card" }, h("h3", {}, "Senin review'ların"),
+      return h("section", { class: "rv-card" }, h("h3", {}, t("Senin review'ların")),
         h("ul", { class: "rv-list" }, d.rounds.slice().reverse().map((r) => {
           const n = pointFor(d, r);
           return h("li", { class: "row" },
-            h("span", {}, `Tur ${r.round} · ${plural(r.comments, "yorum")} · ${r.by} · ${ago(r.at)}`),
+            h("span", {}, `${t("Tur {0}", r.round)} · ${plural(r.comments, W_COMMENT)} · ${r.by} · ${ago(r.at)}`),
             h("span", { class: "mono muted small" }, short(r.head)),
-            n ? h("button", { class: "ghost small", onclick: () => setRange(`since:user:${n}`) }, "O zamandan beri") : "");
+            n ? h("button", { class: "ghost small", onclick: () => setRange(`since:user:${n}`) }, t("O zamandan beri")) : "");
         })));
     }
 

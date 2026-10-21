@@ -13,12 +13,12 @@ import time
 from pathlib import Path
 
 from . import config, onboard, publish
-from .config import PIPELINE_ROOT, ConfigError
+from .config import PACKAGE, ConfigError
 from .project import PROJECT_DOC
 from .publish import PublishError, _clean_env, gh_as
 from .worktree import GitError, git
 
-TEMPLATES = PIPELINE_ROOT / "templates"
+TEMPLATES = PACKAGE / "templates"
 _PROJECT_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$")
 
 

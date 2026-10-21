@@ -29,14 +29,19 @@ bot_token_cmd = "op read 'op://<vault>/<slack bot token item>/credential'"   # x
 channel = "C0000000000"               # the private channel the bot is invited to
 user = "U0000000000"                  # your member ID: only your messages act
 # target = "example"                  # default: default_target
+# forward = false                     # true: the target's other tickets' questions, approvals and failures are posted
+                                      # here too, one thread per ticket, and the same replies work; default false
 
 # macOS notifications for "needs you" items (sent by the wrapper, never from inside a session).
 # Optional: these are the defaults. ZIGGY_NOTIFY=off turns them all off.
 [notifications]
 enabled = true
 events = ["question", "approval", "failed", "lost", "job-error", "quiet", "publish", "push", "merged-kept", "pr-feedback", "error",
-          "memory", "blocked", "restack", "start", "quota", "lead", "protected", "stall"]  # default: all of them
+          "memory", "blocked", "restack", "start", "quota", "lead", "protected", "stall", "report"]  # default: all of them
 min_interval = "30s"                  # duration; at most one notification per interval, the rest are summed up
+digest_every = 0                      # duration; above 0 (e.g. "2h") only the urgent kinds notify at once, the rest
+                                      # arrive as one digest notification this often
+urgent = ["question", "approval", "failed", "lost", "error", "quota", "protected"]  # default: these
 
 # Ticket chat (`ziggy chat`, the panel's chat): read-only questions about a ticket.
 # Optional: these are the defaults.
@@ -117,6 +122,10 @@ retro = true                          # default true: a done ticket with review 
                                       # answers against the recommendation or sent PR feedback gets a read-only retro that
                                       # proposes rules, decisions and pitfalls (panel: "Hafıza"; `ziggy memory`)
 retro_model = "sonnet"                # default "sonnet": that retro session's model (capped at $1)
+# answer_after = "4h"                 # default unset: a question round left that long goes on with its recommendations
+                                      # (only when every question has one; never in mode = "controlled")
+codex_review = "off"                  # default "off": a done ticket gets the Codex second review on its own when "risky"
+                                      # (its plan rated it high risk or large) or "always"; needs `codex`
 roadmap_model = "sonnet"              # default "sonnet": the read-only session behind "Yol haritası çıkar" (a roadmap
                                       # draft for a project without one; capped at $1; `ziggy roadmap draft`)
 lead_model = "sonnet"                 # default "sonnet": the morning lead's read-only session (capped at $0.50)
@@ -129,6 +138,18 @@ quiet_after = 900                     # default 900: seconds without agent event
 stall_after = "10m"                   # default 10m: one tool call running longer is an inbox item (nothing is stopped)
 max_active = 2                        # default 2: headless runs at once in this target; more wait in line
 # budget_usd = 6                      # per session cap (claude --max-budget-usd); default: no cap
+# ticket_budget_usd = 25              # all of one ticket's sessions; over it the run stops between stages
+                                      # (`ziggy run <id> --now` goes on); default: no cap
+# issue_label = "ziggy"               # open GitHub issues with this label become tickets gh-<n> (their PRs close
+                                      # them on merge); default: none
+# codex_stages = ["review"]           # stages Codex runs instead of Claude Code (`codex exec`, its own sandbox);
+                                      # default: none
+# codex_model = "gpt-5.5"             # their model; default: Codex's own
+# best_of = "off"                     # "risky" (plan rated high risk or large) or "always": the first implement runs
+                                      # twice and the better attempt stays (doubles its cost); default "off"
+# issue_run = false                   # start such a ticket at once; default false
+# daily_budget_usd = 60               # the target's sessions per local day; over it tickets wait (status budget)
+                                      # and start the next day by themselves; default: no cap
 github_repo = "example-org/example-repo"  # owner/name where `publish` opens draft PRs; no default
 gh_user = "example-gh-account"        # gh account whose token pushes and opens PRs (`gh auth token --user`); no default
 # PR feedback: the PR sync (`ziggy sync`, and the panel every few minutes) reads review
@@ -186,6 +207,14 @@ timeout = "20m"
 
 # Exported to prepare and teardown commands, to the headless run (the agent's test commands see
 # them) and to the checks. String values only. Default: none.
+# Screenshots of the app's pages after an implement passes its checks, as evidence on the review page (optional).
+# [targets.example.screens]
+# pages = ["/", "/cart"]              # required
+# url = "http://127.0.0.1:{port}"     # default; {port} needs [targets.<name>.ports]
+# start = "npm run dev -- --port {port}"  # the app's server, started in the checks' sandbox
+# wait = "60s"
+# sizes = [[1440, 900], [390, 844]]   # default
+
 [targets.example.env]
 DATABASE_URI = "mongodb://127.0.0.1:27017/example_test_{run_id}"
 

@@ -11,7 +11,7 @@ import time
 import pytest
 from conftest import BIN, calls, cli, script
 
-from ziggy import config, pipeline, pipelines
+from ziggy import config, pipeline, pipelines, state
 
 
 def wait_for(predicate, timeout=20):
@@ -171,6 +171,9 @@ def test_a_quiet_stage_is_retried_in_its_session_with_backoff_until_retries_run_
     ticket_id = cli("new", "chore: Sync pins").stdout.split("\t")[0]
     script(env, {"implement": [{"verdict": "READY", "_sleep": 60, "_sleep_resumed": True}]})
     target = config.load_target("demo")
+    inbox = state.inbox_dir(target, ticket_id)
+    inbox.mkdir(parents=True, exist_ok=True)
+    (inbox / "plan.md").write_text("## Goal & acceptance\n\n- AC-1: it works\n\n## Plan\n\n- [ ] T001 [S1] pin (a.txt)\n")
     started = time.monotonic()
     pipeline.run(target, ticket_id)
     first, second = records(env, ticket_id, "implement")
@@ -182,6 +185,7 @@ def test_a_quiet_stage_is_retried_in_its_session_with_backoff_until_retries_run_
     assert second["retry_exhausted"] == "implement went quiet; no retries left (1 per run)"
     prompt = [c for c in calls(env) if c.get("resumed")][0]["prompt"]
     assert "Ziggy stopped you because it produced no output for" in prompt and "run it differently" in prompt
+    assert "## Where this step stands (from PLAN)" in prompt and "AC-1: it works" in prompt  # PLAN reminded on resume
     st = load_state(env, ticket_id)
     assert st["status"] == "failed" and st["error"].startswith("implement: sessiz kaldı (")  # where the time went, then:
     assert st["error"].split("\n")[1] == "implement went quiet; no retries left (1 per run)"

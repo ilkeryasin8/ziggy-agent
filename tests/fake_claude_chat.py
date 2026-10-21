@@ -24,6 +24,9 @@ argv = sys.argv[1:]
 if argv == ["--help"]:
     print("  --include-partial-messages  Include partial message chunks as they arrive")
     sys.exit(0)
+if argv == ["--version"]:  # the engine's version gate asks first; not a turn
+    print("2.1.305 (Claude Code)")
+    sys.exit(0)
 
 log = Path(os.environ["FAKE_CHAT_LOG"])
 calls = log.read_text().count("\n") if log.exists() else 0
@@ -40,7 +43,10 @@ def emit(event):
     print(json.dumps({**event, "session_id": session}), flush=True)
 
 
-emit({"type": "system", "subtype": "init", "cwd": os.getcwd(), "model": "fake-model"})
+emit({"type": "system", "subtype": "init", "cwd": os.getcwd(), "model": "fake-model",
+      # FAKE_CHAT_MCP: the MCP server names the login has (a JSON list), as a real init event lists them
+      **({"mcp_servers": [{"name": n, "status": "connected"} for n in json.loads(os.environ["FAKE_CHAT_MCP"])]}
+         if os.environ.get("FAKE_CHAT_MCP") else {})})
 if entry.get("sleep"):
     time.sleep(float(entry["sleep"]))
 if entry.get("write"):

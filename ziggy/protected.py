@@ -29,10 +29,10 @@ import tempfile
 from pathlib import Path
 
 from . import results, state
-from .config import PIPELINE_ROOT, Target
+from .config import PACKAGE, Target
 from .worktree import GitError, git
 
-SETTINGS = PIPELINE_ROOT / "claude-settings.json"
+SETTINGS = PACKAGE / "claude-settings.json"
 DIR = "protected"  # runs/<id>/protected/<n>.patch: the copies the wrapper applies
 STATUSES = ("pending", "applied", "rejected", "superseded")
 SCHEMAS = ("implement", "generic")  # the result schemas that may list protectedPatches

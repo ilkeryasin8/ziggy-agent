@@ -20,5 +20,34 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install pytest==8.4.2
+      - name: Install bubblewrap (the Linux sandbox for engine checks)
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q bubblewrap
+          # Ubuntu 24.04 keeps unprivileged user namespaces behind AppArmor; bwrap needs them.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - name: Run tests
+        run: python -m pytest tests -q
+      - name: Install the package and check the eval tasks
+        run: |
+          python -m pip install .
+          ziggy --version
+          ziggy eval validate
+
+  macos:
+    # The sandbox tests (engine checks under sandbox-exec) only run on macOS. macOS minutes cost ten times as much on a
+    # private repository, so this job runs once the repository is public.
+    name: macOS (sandbox tests)
+    if: ${{ !github.event.repository.private }}
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install test tooling
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pytest==8.4.2
       - name: Run tests
         run: python -m pytest tests -q

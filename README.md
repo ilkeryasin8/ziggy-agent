@@ -27,6 +27,23 @@ the agent to one stage at a time and puts a deterministic engine around it:
 - **It learns.** Answered questions and review lessons become project memory (markdown you approve) that later stages
   read; a morning "lead" proposes the next tickets from your roadmap, red CI and deferred findings.
 
+## How it differs
+
+Most coding agents put a model in charge of the loop, in the cloud or in your editor. Ziggy keeps the loop in a
+small, deterministic engine on your machine and gives the model one bounded stage at a time:
+
+- **The engine routes and verifies.** Stages report a result; TOML pipelines decide what happens next. Your test
+  commands run in the engine, under an OS sandbox, and a failing check is tried on the base branch so the agent is
+  never sent to fix what was already broken. A bug fix must bring a regression test that fails without it.
+- **You stay the approver.** Questions with recommendations, an approval gate for risky plans, a split of large plans
+  into stacked slices with one draft PR each, and a review page ranked by risk. Ziggy never merges, and nothing is
+  pushed past a guard that stops CI files, agent instructions, secrets and hidden characters until you look.
+- **Local and inspectable.** Your repository, your Claude Code login, plain files for state and memory. No server, no
+  account, no telemetry.
+
+It is not a cloud agent fleet, an IDE assistant or a general autonomous developer: it is a careful pipeline for
+tickets you would hand to a colleague, sized for one person running a few repositories.
+
 ## What it looks like
 
 | | |
@@ -36,8 +53,9 @@ the agent to one stage at a time and puts a deterministic engine around it:
 | ![Sohbet: a free chat about a project](docs/images/sohbet.png) | ![Projects](docs/images/projects.png) |
 | Sohbet: talk to Claude about a project, outside any ticket | Projects, their run slots and cost |
 
-The panel's interface is in Turkish (it was built for daily use by its author); the CLI, the code, the prompts and the
-docs are in English, and agents answer in the language you pick per ticket.
+The panel speaks English or Turkish (its author's language): it follows your browser and remembers the "EN · TR"
+switch in its sidebar. The CLI, the code, the prompts and the docs are in English, and agents answer in the language
+you pick per ticket.
 
 ## Features
 
@@ -74,17 +92,19 @@ safety layers, Sohbet and MCP, and where state lives.
 
 ## Quick start
 
-Requirements: **macOS** (the sandboxes and launchd), **Python 3.12** (standard library only), **Claude Code** logged
+Requirements: **macOS** (the sandboxes and launchd), **Python 3.12+** (standard library only), **Claude Code** logged
 in, **git**, and **gh** logged in to the account that opens PRs. Optional: `codex` for a second review, `uv` for the
 tests.
 
 ```bash
-git clone https://github.com/ilkeryasin8/ziggy-agent.git ~/src/ziggy
-cd ~/src/ziggy
-bin/ziggy target add ~/src/your-repo --verify   # look at the repo, try its install and tests, write its config
-bin/ziggy ui --install                          # the panel at http://127.0.0.1:8787, kept running by launchd
-bin/ziggy new "feat: add a dark mode toggle" --run
+pipx install git+https://github.com/ilkeryasin8/ziggy-agent.git
+ziggy doctor                                # what this machine still needs, each with the fix
+ziggy target add ~/src/your-repo --verify   # look at the repo, try its install and tests, write its config
+ziggy ui --install                          # the panel at http://127.0.0.1:8787, kept running by launchd
+ziggy new "feat: add a dark mode toggle" --run
 ```
+
+From a clone, `bin/ziggy` runs the same commands without installing anything.
 
 Or open the panel and use "Mevcut repoyu ekle" (add an existing repository) and the command bar.
 
@@ -92,21 +112,60 @@ Ziggy's own state lives in `~/.local/state/ziggy/` and its config in `~/.config/
 ([config.example.toml](config.example.toml) documents every key). Nothing is committed to your repository except the
 work a ticket asks for.
 
+A minimal config is one target:
+
+```toml
+[targets.shop]
+path = "~/src/shop"
+
+[[targets.shop.checks]]
+name = "tests"
+run = "python3 -m pytest -q"
+```
+
+## What it costs
+
+Every stage is a Claude Code session on your own login. On a subscription it counts against your usage limits (Ziggy
+waits for a limit to reset instead of failing, and shows each login's windows); with an API key it is billed. In the
+author's use the default models (`fable` plans, `opus` builds) have come to roughly $5–10 of usage per merged PR; a
+small bug fix on `sonnet` took $0.57 in `ziggy eval`. These are a handful of tickets, not a benchmark: measure your own
+with `ziggy stats` and `ziggy eval`. `plan_model`, `build_model` and `budget_usd` (a per-session cap) are set per
+target.
+
+## Safety at a glance
+
+- Sessions run in Claude Code's sandbox: writes only in the ticket's worktree, no network for the commands the agent
+  runs (Claude Code itself still reaches its API), no push, no MCP servers, no hooks, your global settings not loaded;
+  credential stores and `.env` files are denied to them, and secret-looking environment variables are dropped.
+- Your checks run under `sandbox-exec` with no network but localhost and no access to `~/.ssh`, `~/.aws` and the like.
+- Before anything leaves the machine, a guard stops branches touching CI workflows, agent instruction files, editor or
+  devcontainer config, package install scripts, or carrying secrets or invisible Unicode, until you approve them; PR
+  text is cleaned of images that could exfiltrate on render.
+- Draft PRs only; Ziggy never merges. Claude Code older than 2.1.90 is refused.
+
+Details and the limits of each layer: [docs/reference.md](docs/reference.md#safety-model) and
+[SECURITY.md](SECURITY.md).
+
 ## Documentation
 
 - [docs/architecture.md](docs/architecture.md): the picture, with diagrams.
 - [docs/reference.md](docs/reference.md): every command and feature.
 - [docs/how-it-works.md](docs/how-it-works.md): the rules behind each part, in depth.
-- [pipelines/README.md](pipelines/README.md): the pipeline file format and the prompts.
+- [ziggy/pipelines/README.md](ziggy/pipelines/README.md): the pipeline file format and the prompts.
+- `ziggy eval`: 15 tasks with hidden tests to measure a change to the engine, a prompt or a model (reference: "Measuring changes").
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md); changes are listed in [CHANGELOG.md](CHANGELOG.md).
 
 ## Status
 
-A personal tool in daily use by its author on macOS, open-sourced as is. Expect sharp edges outside that setup
-(Linux would need another sandbox for engine checks). Issues and ideas are welcome.
+A personal tool in daily use by its author on macOS, open-sourced as is. Expect sharp edges outside that setup:
+Linux runs the checks under bubblewrap and is tested in CI, not in daily use. Issues and ideas are welcome.
 
 ## Credits
 
-The role personas and review lenses under `prompts/roles/` and `prompts/lenses/` are adapted from
+The role personas and review lenses under `ziggy/prompts/roles/` and `ziggy/prompts/lenses/` are adapted from
 [BMAD-METHOD](https://github.com/bmad-code-org/BMAD-METHOD) (MIT). See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 ## License

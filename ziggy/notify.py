@@ -23,6 +23,9 @@ from . import config, state
 
 APP = "Ziggy"
 SUMMARY_GROUP = "ziggy-more"
+DIGEST_GROUP = "ziggy-digest"
+DIGEST_MAX = 50  # items a digest keeps; older ones are only counted
+DIGEST_NAMED = 3  # items a digest notification names
 HOMEBREW = ("/opt/homebrew/bin/terminal-notifier", "/usr/local/bin/terminal-notifier")
 OSASCRIPT = "/usr/bin/osascript"
 MESSAGE_MAX = 200
@@ -118,24 +121,38 @@ def _show(subtitle: str, message: str, group: str) -> bool:
 
 
 def _load_rate() -> dict:
+    """notify.json: when the last one was shown, how many the rate limit held back, and the digest waiting
+    (`digest`: [{title, message, at}], `digest_since`, `digest_dropped`: items past DIGEST_MAX)."""
     try:
         data = state.read_json(config.state_home() / RATE_FILE)
-        return {"last_sent": float(data.get("last_sent") or 0), "suppressed": int(data.get("suppressed") or 0)}
+        digest = [d for d in data.get("digest") or [] if isinstance(d, dict)]
+        return {"last_sent": float(data.get("last_sent") or 0), "suppressed": int(data.get("suppressed") or 0),
+                "digest": digest, "digest_since": float(data.get("digest_since") or 0),
+                "digest_dropped": int(data.get("digest_dropped") or 0)}
     except (OSError, ValueError, TypeError, AttributeError):
-        return {"last_sent": 0.0, "suppressed": 0}
+        return {"last_sent": 0.0, "suppressed": 0, "digest": [], "digest_since": 0.0, "digest_dropped": 0}
 
 
 def _save_rate(rate: dict) -> None:
     state.write_json(config.state_home() / RATE_FILE, rate)
 
 
+def language() -> str:
+    """The language notifications are written in ([notifications] language; the system locale's by default)."""
+    try:
+        return config.load_notifications().language
+    except config.ConfigError:
+        return config.system_language()
+
+
 def _more(n: int) -> str:
-    return f"{n} öğe daha seni bekliyor"
+    return f"{n} öğe daha seni bekliyor" if language() == "tr" else f"{n} more waiting for you"
 
 
-def send(title: str, message: str, *, key: str) -> bool:
+def send(title: str, message: str, *, key: str, kind: str | None = None) -> bool:
     """Show a notification: `title` (what it is about, e.g. "dmo-3 · demo") under the app name,
-    `message` below it, `key` its group (a newer one with the same key replaces it). True when shown."""
+    `message` below it, `key` its group (a newer one with the same key replaces it). With digests on
+    (`digest_every`), a `kind` that is not urgent waits for the digest instead. True when shown."""
     try:
         cfg = settings()
         if cfg is None:
@@ -143,6 +160,15 @@ def send(title: str, message: str, *, key: str) -> bool:
         with state_lock("notify", "notification rate"):
             rate = _load_rate()
             now = time.time()
+            if kind and cfg.digest_every and kind not in cfg.urgent:
+                if not rate["digest"]:
+                    rate["digest_since"] = now
+                rate["digest"].append({"title": title, "message": message, "at": state.now()})
+                if len(rate["digest"]) > DIGEST_MAX:
+                    rate["digest_dropped"] += len(rate["digest"]) - DIGEST_MAX
+                    rate["digest"] = rate["digest"][-DIGEST_MAX:]
+                _save_rate(rate)
+                return False
             if now - rate["last_sent"] < cfg.min_interval:
                 rate["suppressed"] += 1
                 _save_rate(rate)
@@ -150,15 +176,26 @@ def send(title: str, message: str, *, key: str) -> bool:
             extra = rate["suppressed"]
             shown = _show(title, f"{message} (+ {_more(extra)})" if extra else message, key)
             if shown:
-                _save_rate({"last_sent": now, "suppressed": 0})
+                _save_rate({**rate, "last_sent": now, "suppressed": 0})
             return shown
     except Exception as exc:  # noqa: BLE001 — a notification must never fail its caller
         _warn(str(exc))
         return False
 
 
+def digest_text(items: list[dict], dropped: int = 0) -> tuple[str, str]:
+    """(subtitle, message) of a digest: how many, then the first few by title and what they are."""
+    n = len(items) + dropped
+    named = "; ".join(f"{i.get('title')}: {i.get('message')}" for i in items[:DIGEST_NAMED])
+    rest = n - min(len(items), DIGEST_NAMED)
+    if language() == "tr":
+        return f"Özet · {n} öğe", named + (f" (+ {rest} öğe daha)" if rest > 0 else "")
+    return f"Digest · {n} item{'' if n == 1 else 's'}", named + (f" (+ {rest} more)" if rest > 0 else "")
+
+
 def flush_due() -> bool:
-    """Show the count of notifications held back by the rate limit once their window has passed."""
+    """Show the count of notifications held back by the rate limit once their window has passed, and the digest
+    once `digest_every` has passed since its first item (or right away when digests were turned off)."""
     try:
         cfg = settings()
         if cfg is None:
@@ -166,11 +203,17 @@ def flush_due() -> bool:
         with state_lock("notify", "notification rate"):
             rate = _load_rate()
             now = time.time()
+            if rate["digest"] and now - rate["digest_since"] >= cfg.digest_every:
+                subtitle, message = digest_text(rate["digest"], rate["digest_dropped"])
+                if _show(subtitle, message, DIGEST_GROUP):
+                    _save_rate({**rate, "digest": [], "digest_since": 0.0, "digest_dropped": 0})
+                    return True
+                return False
             if not rate["suppressed"] or now - rate["last_sent"] < cfg.min_interval:
                 return False
             shown = _show("", _more(rate["suppressed"]), SUMMARY_GROUP)
             if shown:
-                _save_rate({"last_sent": now, "suppressed": 0})
+                _save_rate({**rate, "last_sent": now, "suppressed": 0})
             return shown
     except Exception as exc:  # noqa: BLE001
         _warn(str(exc))

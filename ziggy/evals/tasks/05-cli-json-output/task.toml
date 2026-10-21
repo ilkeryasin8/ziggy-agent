@@ -1,0 +1,17 @@
+title = "Add a --json flag to the inventory CLI"
+type = "feat"
+body = """
+Scripts that consume `inventory` have to scrape the text output. Add a `--json` flag to the CLI in `inventory/cli.py`.
+
+With `--json`, print a single JSON object to stdout and nothing else:
+
+    {"items": [{"name": "bolt", "qty": 120}, ...], "total": <sum of qty of listed items>}
+
+Requirements:
+- Items are sorted by name, exactly like the text mode.
+- `--min-qty` filters the items first; `total` reflects only the items that are listed.
+- When nothing matches, output `{"items": [], "total": 0}` (still valid JSON, exit code 0).
+- Without `--json` the output must remain byte-for-byte what it is today.
+- `main` keeps its signature and returns the exit code.
+"""
+check = "python3 -m unittest discover -s hidden_tests -t . -q"

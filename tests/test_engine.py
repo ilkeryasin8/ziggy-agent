@@ -385,6 +385,8 @@ def _records(env, ticket_id="local-1"):
 
 
 def _review(route, findings, **extra):
+    """A READY review result; findings get a location and evidence (the verification bar) unless they bring their own."""
+    findings = [{"location": "a.txt:1", "evidence": "a.txt:1 shows it", **f} for f in findings]
     return {"verdict": "READY", "route": route, "findings": findings, **extra}
 
 
@@ -455,7 +457,7 @@ def test_a_nit_to_fix_goes_back_and_the_last_round_defers_it(env):
     assert "This is the last review this run allows" in reviews[1]["prompt"] and "last review" not in reviews[0]["prompt"]
 
 
-@pytest.mark.skipif(not os.access(checks.SANDBOX_EXEC, os.X_OK), reason="engine checks need macOS sandbox-exec")
+@pytest.mark.skipif(not checks.available(), reason="needs an OS sandbox for checks (sandbox-exec or bwrap)")
 def test_engine_checks_reach_the_implement_and_review_prompts(env):
     env["config"].write_text(env["config"].read_text() + '[[targets.demo.checks]]\nname = "ok"\nrun = "true"\n')
     script(env, {"implement": [{"verdict": "READY", "_commit": "a.txt"}],
@@ -468,7 +470,7 @@ def test_engine_checks_reach_the_implement_and_review_prompts(env):
     assert "Do not re-run the full suite" in review
 
 
-@pytest.mark.skipif(not os.access(checks.SANDBOX_EXEC, os.X_OK), reason="engine checks need macOS sandbox-exec")
+@pytest.mark.skipif(not checks.available(), reason="needs an OS sandbox for checks (sandbox-exec or bwrap)")
 def test_a_check_failing_in_its_environment_stops_without_burning_implement_visits(env):
     env["config"].write_text(env["config"].read_text() + '[[targets.demo.checks]]\nname = "app"\n'
                              "run = \"echo 'sandbox-exec: sandbox_apply: Operation not permitted'; exit 65\"\n")
@@ -481,7 +483,7 @@ def test_a_check_failing_in_its_environment_stops_without_burning_implement_visi
     assert [c.get("stage") for c in calls(env)].count("implement") == 1
 
 
-@pytest.mark.skipif(not os.access(checks.SANDBOX_EXEC, os.X_OK), reason="engine checks need macOS sandbox-exec")
+@pytest.mark.skipif(not checks.available(), reason="needs an OS sandbox for checks (sandbox-exec or bwrap)")
 def test_recheck_runs_only_the_checks_once_the_environment_is_fixed(env):
     from ziggy import config, pipeline, state
 

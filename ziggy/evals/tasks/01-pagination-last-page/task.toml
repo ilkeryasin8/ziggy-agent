@@ -1,0 +1,16 @@
+title = "Fix page count and has_next for partial last pages"
+type = "fix"
+body = """
+Users report that the last page of a list is unreachable whenever the item count is not an exact multiple of the page size.
+
+For example, a catalogue with 10 items shown 3 per page reports `total_pages` as 3, and the final item (page 4) is never advertised. `has_next` is wrong on the page before it for the same reason.
+
+Where: `pager/paging.py` (`total_pages` and `paginate`).
+
+Expected:
+- `total_pages` rounds up; an empty list has 0 pages.
+- `has_next` is true exactly when a later page exists.
+- Requesting a page past the end still returns an empty `items` list and `has_next` false (no exception).
+- Invalid `page` or `per_page` (below 1) must keep raising `ValueError`.
+"""
+check = "python3 -m unittest discover -s hidden_tests -t . -q"

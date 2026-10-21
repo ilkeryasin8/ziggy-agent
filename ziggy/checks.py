@@ -19,7 +19,11 @@ import re
 import shutil
 import signal
 import subprocess
+import sys
+import tempfile
 import time
+from collections.abc import Generator
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -28,6 +32,8 @@ from .dispatch import PID_FILE, STOP_FILE
 from .worktree import git
 
 SANDBOX_EXEC = "/usr/bin/sandbox-exec"
+BWRAP = "bwrap"  # bubblewrap: the Linux backend
+LINUX = sys.platform.startswith("linux")
 DETAIL_MAX = 2000
 LIST_MAX = 20  # paths named in a check's detail
 # System temp dirs (/tmp, $TMPDIR) and devices (/dev/null, /dev/tty) every toolchain writes to.
@@ -37,6 +43,9 @@ ENVIRONMENT = (
     (re.compile(r"sandbox-exec: sandbox_apply: Operation not permitted"),
      "a tool started its own sandbox inside the check's sandbox, which macOS refuses; switch that tool's sandbox off "
      "in the check command (the Swift compiler's macro plugins: 'OTHER_SWIFT_FLAGS=$(inherited) -disable-sandbox')"),
+    (re.compile(r"bwrap: (setting up uid map|No permissions to creat|Creating new namespace failed|loopback: Failed)"),
+     "bubblewrap could not create the check's namespaces: unprivileged user namespaces are off on this machine (on "
+     "Ubuntu 24.04: `sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0`, or an AppArmor profile for bwrap)"),
 )
 _ANSI = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
 _CONTROL = re.compile(r"[\x00-\x1f\x7f]")
@@ -60,6 +69,52 @@ def _preset_rules(name: str) -> list[str]:
     raise ValueError(f"unknown check_sandbox preset {name!r} (known: {', '.join(CHECK_SANDBOX_PRESETS)})")
 
 
+# Credentials a check's code (written by the agent) must not read, though the profile otherwise allows reads: a test
+# could print them into the log the agent and the PR see. Not the keychain: Xcode builds may read it to sign.
+READ_DENY_DIRS = (".ssh", ".aws", ".azure", ".kube", ".docker", ".gnupg", ".codex", ".config/gh", ".config/ziggy")
+READ_DENY_FILES = (".netrc", ".git-credentials", ".claude.json", ".pypirc", ".npmrc")
+
+
+def _read_denies() -> list[str]:
+    home = Path.home()
+    rules = [f"(subpath {_literal(os.path.realpath(home / d))})" for d in READ_DENY_DIRS]
+    rules += [f"(literal {_literal(os.path.realpath(home / f))})" for f in READ_DENY_FILES]
+    return [f"(deny file-read* {' '.join(rules)})"]
+
+
+def backend() -> str | None:
+    """The OS sandbox engine checks run under: "sandbox-exec" (macOS) or "bwrap" (bubblewrap, Linux); None when
+    neither is here, and then no check runs."""
+    if os.access(SANDBOX_EXEC, os.X_OK):
+        return "sandbox-exec"
+    if LINUX and shutil.which(BWRAP):
+        return "bwrap"
+    return None
+
+
+def available() -> bool:
+    return backend() is not None
+
+
+def bwrap_argv(wt: Path, state_dir: Path, command: str, deny: Path) -> list[str]:
+    """The Linux counterpart of profile(): the whole filesystem read-only, writes only in the worktree, the target's
+    state directory and /tmp, /dev and /proc as usual, a network namespace of its own (its own loopback: unlike the
+    macOS profile, a database listening on the host's localhost is out of reach), and the credential stores hidden: an
+    empty tmpfs over READ_DENY_DIRS, `deny` (an empty file of mode 000, the caller's) over READ_DENY_FILES, so reading
+    one fails instead of returning nothing."""
+    home, wt, state_dir = Path.home(), Path(wt).resolve(), Path(state_dir).resolve()
+    state_dir.mkdir(parents=True, exist_ok=True)
+    argv = [shutil.which(BWRAP) or BWRAP, "--ro-bind", "/", "/", "--dev-bind", "/dev", "/dev", "--proc", "/proc",
+            "--bind", "/tmp", "/tmp", "--bind", str(wt), str(wt), "--bind", str(state_dir), str(state_dir)]
+    for d in READ_DENY_DIRS:
+        if (home / d).is_dir():
+            argv += ["--tmpfs", os.path.realpath(home / d)]
+    for f in READ_DENY_FILES:
+        if (home / f).is_file():
+            argv += ["--ro-bind", str(deny), os.path.realpath(home / f)]
+    return argv + ["--unshare-net", "--die-with-parent", "--chdir", str(wt), "bash", "-c", f"set -eo pipefail\n{command}"]
+
+
 def profile(wt: Path, state_dir: Path, presets: tuple[str, ...] = ()) -> str:
     """The sandbox-exec profile one check runs under, plus the rules of the target's `presets`. Paths are resolved:
     the sandbox matches real paths."""
@@ -79,6 +134,8 @@ def profile(wt: Path, state_dir: Path, presets: tuple[str, ...] = ()) -> str:
         "(deny file-write*)",
         f"(allow file-write* {subpaths})",
         *extra,
+        # Last, so no preset can open them again (the last matching rule wins).
+        *_read_denies(),
         "",
     ])
 
@@ -99,6 +156,41 @@ def run(target: Target, ticket_id: str, wt: Path, checks: list[dict], log_path: 
         if outcome["status"] != "pass":
             break
     return outcomes
+
+
+@contextmanager
+def at_base(wt: Path, base: str, keep: tuple[str, ...] = ()) -> Generator[None, None, None]:
+    """For the duration, the worktree's tracked files as `base` has them, except the paths in `keep` (as HEAD has
+    them): a check run inside sees the code from before the branch's change. The index is never touched and HEAD's
+    files come back afterwards, whatever happened. The tree must be clean when it starts (the caller checks)."""
+    changes = git("diff", "--name-status", "--no-renames", "-z", base, "HEAD", cwd=wt).stdout.split("\0")
+    pairs = [(s, p) for s, p in zip(changes[0::2], changes[1::2]) if p and p not in keep]
+    added = [p for s, p in pairs if s == "A"]
+    gone = [p for s, p in pairs if s == "D"]  # at base only: restored for the run, removed again after it
+    try:
+        for path in added:
+            _remove(Path(wt), path)
+        others = [f":(literal){p}" for s, p in pairs if s != "A"]
+        if others:
+            git("restore", "--source", base, "--worktree", "--", *others, cwd=wt)
+        yield
+    finally:
+        git("restore", "--source", "HEAD", "--worktree", "--", ".", cwd=wt, check=False)
+        for path in gone:
+            _remove(Path(wt), path)
+        # The files are HEAD's again but newer on disk: refresh the index's stat data, or a later `reset --keep`
+        # (an intent gap, a best of two) sees them as changed and refuses.
+        git("update-index", "-q", "--refresh", cwd=wt, check=False)
+
+
+def baseline(target: Target, ticket_id: str, wt: Path, check: dict, base: str, log_path: Path, env: dict,
+             keep: tuple[str, ...] = ()) -> dict:
+    """One check run on `base`'s code (with `keep` as the branch has it); its outcome, as run() gives it."""
+    with log_path.open("a", encoding="utf-8") as log:
+        kept = f", keeping {', '.join(keep)} from the branch" if keep else ""
+        log.write(f'\n=== check "{check["name"]}" again on {base[:9]}, the code before this change{kept}\n')
+    with at_base(wt, base, keep):
+        return run(target, ticket_id, wt, [check], log_path, env)[0]
 
 
 def _run_one(target: Target, wt: Path, check: dict, log_path: Path, env: dict) -> dict:
@@ -208,15 +300,29 @@ def _remove(wt: Path, rel: str) -> None:
 def _execute(target: Target, wt: Path, name: str, command: str, timeout_s: int, log_path: Path,
              env: dict) -> tuple[int | None, str]:
     """Runs one check; returns (exit code or None, how it ended)."""
-    if not os.access(SANDBOX_EXEC, os.X_OK):
-        return None, "could not start: sandbox-exec not available"
+    which = backend()
+    if which is None:
+        return None, "could not start: no sandbox available (sandbox-exec on macOS, bwrap on Linux)"
     if not Path(wt).is_dir():
         return None, f"could not start: working directory not found: {wt}"
-    try:
-        sandbox = profile(wt, target.state_dir, target.check_sandbox)
-    except ValueError as exc:
-        return None, f"could not start: {exc}"
-    argv = [SANDBOX_EXEC, "-p", sandbox, "bash", "-c", f"set -eo pipefail\n{command}"]
+    deny = None
+    if which == "bwrap":  # the check_sandbox presets are macOS rules; Linux needs none of them, but a bad name still stops
+        try:
+            for preset in target.check_sandbox:
+                _preset_rules(preset)
+        except ValueError as exc:
+            return None, f"could not start: {exc}"
+        fd, name_ = tempfile.mkstemp(prefix="ziggy-deny-")  # outside every directory Ziggy or a tool walks
+        os.close(fd)
+        deny = Path(name_)
+        deny.chmod(0)
+        argv = bwrap_argv(wt, target.state_dir, command, deny)
+    else:
+        try:
+            sandbox = profile(wt, target.state_dir, target.check_sandbox)
+        except ValueError as exc:
+            return None, f"could not start: {exc}"
+        argv = [SANDBOX_EXEC, "-p", sandbox, "bash", "-c", f"set -eo pipefail\n{command}"]
     stage_dir = log_path.parent
     pid_path = stage_dir / PID_FILE
     timed_out = False
@@ -226,6 +332,8 @@ def _execute(target: Target, wt: Path, name: str, command: str, timeout_s: int, 
             proc = subprocess.Popen(argv, cwd=wt, env={**env, "PIPELINE_CHECK": name}, stdin=subprocess.DEVNULL,
                                     stdout=log, stderr=log, start_new_session=True)
         except OSError as exc:
+            if deny:
+                deny.unlink(missing_ok=True)
             return None, f"could not start: {exc}"
         pid_path.write_text(f"{proc.pid}\n")
         try:
@@ -234,6 +342,8 @@ def _execute(target: Target, wt: Path, name: str, command: str, timeout_s: int, 
             timed_out = True
         finally:
             pid_path.unlink(missing_ok=True)
+            if deny:  # the bind keeps the file for a check still running; nothing else needs it
+                deny.unlink(missing_ok=True)
     stopped = (stage_dir / STOP_FILE).exists()
     if timed_out or stopped:
         try:

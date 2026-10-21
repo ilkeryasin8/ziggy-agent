@@ -1,0 +1,14 @@
+title = "Add time-based refill to TokenBucket"
+type = "feat"
+body = """
+`TokenBucket` in `limiter/bucket.py` only ever hands out its initial tokens; it never refills, so a rate limiter built on it locks users out permanently. Add refilling and a wait-time hint.
+
+API:
+- `TokenBucket(capacity, refill_rate=1.0, clock=time.monotonic)`: `refill_rate` is tokens per second; `clock` is a zero-argument callable (injectable). The bucket starts full. `capacity <= 0` or `refill_rate <= 0` raises `ValueError`.
+- Tokens accrue continuously (fractions allowed) based on elapsed clock time and never exceed `capacity`.
+- `allow(cost=1)`: consume `cost` tokens and return True if enough are available, otherwise return False and consume nothing. A `cost` that is not positive or exceeds `capacity` raises `ValueError`.
+- `retry_after(cost=1)`: seconds until `cost` tokens will be available (0 if available now). Does not consume.
+
+Existing `TokenBucket(n)` and `allow()` usage must keep working.
+"""
+check = "python3 -m unittest discover -s hidden_tests -t . -q"

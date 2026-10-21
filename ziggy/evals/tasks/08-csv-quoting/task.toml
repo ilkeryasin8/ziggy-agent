@@ -1,0 +1,15 @@
+title = "Escape quotes and newlines when writing CSV"
+type = "fix"
+body = """
+Exported CSV files break when a field contains a double quote or a line break; spreadsheet tools split the row or lose data. Today only fields containing a comma get quoted, and embedded quotes are not escaped.
+
+Where: `csvio/writer.py` (`to_csv_line`, used by `rows_to_csv`).
+
+Expected (RFC 4180 style):
+- A field is wrapped in double quotes if it contains a comma, a double quote, a newline, or a carriage return.
+- Double quotes inside a quoted field are doubled.
+- `None` is written as an empty field; other values are converted with `str`.
+- Output must round-trip through the standard `csv` reader.
+- Rows still end with a single `\\n` in `rows_to_csv`; plain fields stay unquoted.
+"""
+check = "python3 -m unittest discover -s hidden_tests -t . -q"

@@ -8,6 +8,10 @@ _bmad/
 __pycache__/
 .pytest_cache/
 .venv/
+# pip install . / python -m build
+build/
+dist/
+*.egg-info/
 
 # macOS
 .DS_Store

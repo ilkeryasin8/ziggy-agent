@@ -7,7 +7,7 @@ a push, which the pre-push hook must reject.
 Stage sessions (PIPELINE_STAGE set) write $PIPELINE_RESULT_FILE from FAKE_RESULTS, a path to a JSON
 file {"<stage>": [result for the 1st visit, 2nd visit, …]} (the last entry repeats; default
 {"verdict": "READY", "summary": "ok"}). Fake-only keys in an entry:
-  _commit: "<path>"     write and commit that file in the worktree ({ticket} in it: the ticket id)
+  _commit: "<path>"     write and commit that file in the worktree ({ticket} in it: the ticket id); a list: each
   _dirty: "<path>"      leave that file uncommitted
   _plan: "<markdown>"   write the plan (a default plan is written when none exists yet)
   _artifacts: {...}     write these files ({"<name>": "<text>"}) under $PIPELINE_ARTIFACTS_DIR
@@ -43,6 +43,9 @@ if argv == ["--help"]:
     print("  --max-budget-usd <amount>  Maximum dollar amount to spend on API calls")
     print("  --json-schema <schema>     JSON Schema for structured output validation")
     print("  --effort <level>           Effort level for the session (low, medium, high, max)")
+    sys.exit(0)
+if argv == ["--version"]:  # the engine's version gate asks first; not a call
+    print("2.1.305 (Claude Code)")
     sys.exit(0)
 prompt = argv[argv.index("-p") + 1]
 stage = os.environ.get("PIPELINE_STAGE")
@@ -124,11 +127,13 @@ elif not plan.exists():
                     "## Plan\n\n### S1: change\n- [ ] T001 [S1] change it (README.md)\n\n"
                     "## Verification\n\n- [ ] V001 [AC-1] run the tests\n")
 if entry.get("_commit"):
-    rel = entry["_commit"].replace("{ticket}", os.environ["PIPELINE_TICKET"])
-    path = cwd / rel
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(f"{stage} visit {visits[stage]}\n")
-    subprocess.run(["git", "add", "--", rel], check=True, capture_output=True)
+    rels = [r.replace("{ticket}", os.environ["PIPELINE_TICKET"])
+            for r in ([entry["_commit"]] if isinstance(entry["_commit"], str) else entry["_commit"])]
+    for rel in rels:
+        path = cwd / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f"{stage} visit {visits[stage]}\n")
+    subprocess.run(["git", "add", "--", *rels], check=True, capture_output=True)
     subprocess.run(["git", "commit", "-q", "-m", f"feat({os.environ['PIPELINE_TICKET']}): {stage} {visits[stage]}"],
                    check=True, capture_output=True)
     if plan.exists():

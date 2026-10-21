@@ -5,10 +5,10 @@ import tomllib
 from dataclasses import dataclass, field, replace
 
 from . import results
-from .config import PIPELINE_ROOT, parse_duration
+from .config import PACKAGE, parse_duration
 
-PIPELINES_DIR = PIPELINE_ROOT / "pipelines"
-PROMPTS_DIR = PIPELINE_ROOT / "prompts"
+PIPELINES_DIR = PACKAGE / "pipelines"
+PROMPTS_DIR = PACKAGE / "prompts"
 TERMINALS = ("done", "failed", "ask_user")
 _ID = re.compile(r"^[a-z][a-z0-9-]{0,39}$")
 _ROUTE = re.compile(r"^[a-z][a-zA-Z0-9_]{0,29}$")
@@ -16,7 +16,7 @@ _NAME = re.compile(r"^[a-z][a-z0-9-]{0,39}$")
 _PIPELINE_KEYS = {"name", "title", "ask_user", "user_review", "intent_gap", "gate", "stages"}
 _STAGE_KEYS = {"id", "title", "role", "model", "prompt", "result", "writes", "tools_deny", "timeout", "quiet_after",
                "max_visits", "checks", "next", "routes", "ask_then", "effort", "visits", "incremental", "retry",
-               "commit_paths", "commit_message"}
+               "commit_paths", "commit_message", "regression"}
 # What a later visit may change (`[stages.visits.<N>]`); locks, routes and checks stay the stage's.
 VISIT_KEYS = ("model", "effort", "timeout", "quiet_after", "tools_deny", "prompt")
 _VISIT = re.compile(r"^([2-9]|[1-9][0-9]+)$")
@@ -63,6 +63,9 @@ class Stage:
     retry: Retry = Retry()
     commit_paths: tuple[str, ...] = ()  # repository paths the engine commits after the stage when they changed
     commit_message: str | None = None
+    # After its checks pass, the engine proves the fix: the `regressionTest` the stage reports passes on the branch
+    # and fails on the code from before the implement (pipeline._regression_test). Needs checks = true.
+    regression: bool = False
 
     def route_names(self) -> list[str]:
         return [r for r in self.routes if r != results.CHECKS_FAILED]
@@ -232,7 +235,7 @@ def _stage(raw, label: str, errors: list) -> Stage | None:
     if not isinstance(tools, list) or not all(isinstance(t, str) for t in tools):
         errors.append(f"{label}: tools_deny must be a list of tool names")
         tools = []
-    for key in ("writes", "checks", "incremental"):
+    for key in ("writes", "checks", "incremental", "regression"):
         if key in raw and not isinstance(raw[key], bool):
             errors.append(f"{label}: {key} must be true or false")
     effort = raw.get("effort")
@@ -255,7 +258,8 @@ def _stage(raw, label: str, errors: list) -> Stage | None:
                  max_visits=max_visits, checks=raw.get("checks", False) is True, next=nxt, routes=dict(routes),
                  ask_then=raw.get("ask_then"), effort=effort, visits=_visits(raw.get("visits"), label, errors),
                  incremental=raw.get("incremental", True) is not False, retry=_retry(raw.get("retry"), label, errors),
-                 commit_paths=tuple(p.strip().rstrip("/") for p in commit_paths), commit_message=commit_message)
+                 commit_paths=tuple(p.strip().rstrip("/") for p in commit_paths), commit_message=commit_message,
+                 regression=raw.get("regression", False) is True)
 
 
 def _visits(raw, label: str, errors: list) -> dict:
@@ -405,6 +409,8 @@ def parse(name: str, data: dict) -> Pipeline:
             warnings.append(f"stage {s.id}: incremental applies only to review stages")
         if results.CHECKS_FAILED in s.routes and not s.checks:
             warnings.append(f"stage {s.id}: routes.{results.CHECKS_FAILED} without checks = true")
+        if s.regression and not s.checks:
+            warnings.append(f"stage {s.id}: regression = true without checks = true (the test runs with the checks)")
     if errors:
         raise PipelineConfigError(f"{label}: " + "; ".join(errors[:8]))
     return Pipeline(name=str(data.get("name") or name), title=str(data.get("title") or name), stages=tuple(stages),

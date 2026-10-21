@@ -269,7 +269,7 @@ def test_run_goes_through_the_pipeline_without_pushing(env):
 
     for call in calls(env):
         argv = call["argv"]
-        assert argv[argv.index("--settings") + 1] == str(ROOT / "claude-settings.json")
+        assert argv[argv.index("--settings") + 1] == str(ROOT / "ziggy" / "claude-settings.json")
         assert argv[argv.index("--setting-sources") + 1] == "project"
         assert "--strict-mcp-config" in argv
         assert argv[argv.index("--add-dir") + 1] == str(run_root(env, ticket_id) / "inbox")
@@ -361,7 +361,7 @@ def test_review_loop_cap_fails_the_run(env, monkeypatch):
     assert "loop cap reached" in cli("status", ticket_id).stdout
 
 
-@pytest.mark.skipif(not os.access(checks.SANDBOX_EXEC, os.X_OK), reason="checks only run under macOS sandbox-exec")
+@pytest.mark.skipif(not checks.available(), reason="needs an OS sandbox for checks (sandbox-exec or bwrap)")
 def test_failed_checks_route_back_to_implement(env, monkeypatch):
     env["config"].write_text(env["config"].read_text() + '[[targets.demo.checks]]\nname = "ok-file"\nrun = "test -f ok.txt"\n')
     results(env, monkeypatch, {"implement": [{"verdict": "READY", "summary": "first"},

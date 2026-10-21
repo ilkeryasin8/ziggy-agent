@@ -13,6 +13,8 @@ def shown(tmp_path, monkeypatch):
     monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "xdg"))
     monkeypatch.setenv("ZIGGY_CONFIG", str(tmp_path / "config.toml"))
     monkeypatch.delenv("ZIGGY_NOTIFY", raising=False)
+    monkeypatch.setenv("LANG", "tr_TR.UTF-8")  # the texts below are the Turkish ones; English has its own test
+    monkeypatch.delenv("LC_ALL", raising=False)
     monkeypatch.setattr(notify, "MACOS", True)
     out = Shown()
     monkeypatch.setattr(notify.time, "time", lambda: out.clock["now"])
@@ -163,3 +165,62 @@ def test_send_never_raises(shown, monkeypatch):
     monkeypatch.setattr(notify, "_show", boom)
     assert notify.send("a", "a", key="a") is False
     assert notify.flush_due() is False
+
+
+def test_with_digests_on_urgent_kinds_notify_at_once_and_the_rest_wait_for_the_digest(shown, tmp_path):
+    (tmp_path / "config.toml").write_text('[notifications]\nmin_interval = 0\ndigest_every = "1h"\nurgent = ["question"]\n')
+    assert notify.send("dmo-1 · demo", "Ajanın soruları var: x", key="k1", kind="question") is True
+    for i in range(5):
+        assert notify.send(f"dmo-{i + 2} · demo", "PR'a hazır: y", key=f"k{i + 2}", kind="publish") is False
+    assert len(shown) == 1
+    assert notify.flush_due() is False  # the digest's hour has not passed
+    shown.clock["now"] += 3600
+    assert notify.flush_due() is True
+    subtitle, message, group = shown[-1]
+    assert subtitle == "Özet · 5 öğe" and group == notify.DIGEST_GROUP
+    assert message.startswith("dmo-2 · demo: PR'a hazır: y; dmo-3") and message.endswith("(+ 2 öğe daha)")
+    assert notify.flush_due() is False  # emptied
+
+
+def test_without_digests_every_kind_notifies_as_before(shown, tmp_path):
+    (tmp_path / "config.toml").write_text("[notifications]\nmin_interval = 0\n")
+    assert notify.send("a", "b", key="k", kind="publish") is True and len(shown) == 1
+
+
+def test_a_digest_keeps_the_newest_items_and_counts_the_rest(shown, tmp_path):
+    (tmp_path / "config.toml").write_text('[notifications]\ndigest_every = "10m"\n')
+    for i in range(notify.DIGEST_MAX + 7):
+        notify.send(f"t{i}", "m", key=f"k{i}", kind="memory")
+    shown.clock["now"] += 600
+    assert notify.flush_due() is True and shown[-1][0] == f"Özet · {notify.DIGEST_MAX + 7} öğe"
+    assert shown[-1][1].startswith("t7: m;")
+
+
+def test_urgent_and_digest_every_are_validated(tmp_path, monkeypatch):
+    monkeypatch.setenv("ZIGGY_CONFIG", str(tmp_path / "config.toml"))
+    (tmp_path / "config.toml").write_text('[notifications]\nurgent = ["nope"]\n')
+    with pytest.raises(config.ConfigError, match="urgent must be a list of event names"):
+        config.load_notifications()
+    (tmp_path / "config.toml").write_text('[notifications]\ndigest_every = "soon"\n')
+    with pytest.raises(config.ConfigError, match="digest_every: invalid duration"):
+        config.load_notifications()
+    (tmp_path / "config.toml").write_text('[notifications]\ndigest_every = "2h"\n')
+    cfg = config.load_notifications()
+    assert cfg.digest_every == 7200 and cfg.urgent == config.URGENT_EVENTS
+
+
+def test_notifications_follow_the_language_setting_then_the_locale(shown, tmp_path, monkeypatch):
+    assert notify.language() == "tr"
+    monkeypatch.setenv("LANG", "en_US.UTF-8")
+    assert notify.language() == "en" and notify._more(3) == "3 more waiting for you"
+    assert notify.digest_text([{"title": "a", "message": "b"}] * 4) == ("Digest · 4 items", "a: b; a: b; a: b (+ 1 more)")
+    (tmp_path / "config.toml").write_text('[notifications]\nlanguage = "tr"\n')
+    assert notify.language() == "tr" and notify._more(3) == "3 öğe daha seni bekliyor"
+    (tmp_path / "config.toml").write_text('[notifications]\nlanguage = "de"\n')
+    with pytest.raises(config.ConfigError, match="language must be one of en, tr"):
+        config.load_notifications()
+
+
+def test_every_notification_label_has_its_english():
+    from ziggy import attention
+    assert set(attention.LABEL_EN) == set(attention.LABEL)

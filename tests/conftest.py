@@ -61,6 +61,8 @@ def env(tmp_path, monkeypatch):
     monkeypatch.delenv("ZIGGY_RUN", raising=False)
     monkeypatch.delenv("GIT_CONFIG_COUNT", raising=False)
     monkeypatch.setenv("ZIGGY_NOTIFY", "off")  # notify.send never reaches osascript in tests
+    monkeypatch.setenv("LANG", "tr_TR.UTF-8")  # notifications and the weekly report in Turkish, whatever the machine's
+    monkeypatch.delenv("LC_ALL", raising=False)
     monkeypatch.setenv("ZIGGY_RETRO", "off")  # no background retro sessions after done (test_retro.py turns it on)
     monkeypatch.setenv("ZIGGY_LEAD", "off")  # the panel's tick never starts a lead job (test_lead.py turns it on)
     # The machine as `sysctl` would describe it (host.py): calm, whatever the real one does; tests write another.

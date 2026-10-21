@@ -184,7 +184,7 @@ def _check(target: Target, clone: Path, item: dict, log: Path, secrets: set[str]
         timeout_s = config.parse_duration(item.get("timeout") or CHECK_TIMEOUT)
     except ValueError:
         timeout_s = CHECK_TIMEOUT
-    env = dispatch.environment(target, TICKET, clone, {"PIPELINE_TICKET": TICKET, "PIPELINE_WORKTREE": str(clone),
+    env = dispatch.environment(target, TICKET, clone, claude=False, extra={"PIPELINE_TICKET": TICKET, "PIPELINE_WORKTREE": str(clone),
                                                        "PIPELINE_VISIT": "1", "PIPELINE_LAST_VISIT": "1"})
     check = {"name": str(item["name"]).strip(), "run": str(item["run"]).strip(), "timeout_s": timeout_s}
     outcome = engine_checks.run(target, TICKET, clone, [check], log, env)[0]

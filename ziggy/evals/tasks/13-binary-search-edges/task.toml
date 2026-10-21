@@ -1,0 +1,13 @@
+title = "Fix index_of returning -1 for existing values"
+type = "fix"
+body = """
+`index_of(sorted_list, target)` sometimes returns -1 even though the value is present. Reported cases: a one-element list, and looking up the last (or first) element of some lists. When duplicates exist the index returned is arbitrary.
+
+Where: `algos/bsearch.py`.
+
+Expected:
+- Returns the index of the target in an ascending list, or -1 if it is absent (including empty lists and targets below the first or above the last element).
+- With duplicate values, returns the index of the leftmost occurrence.
+- Must stay O(log n); the input list is not modified.
+"""
+check = "python3 -m unittest discover -s hidden_tests -t . -q"

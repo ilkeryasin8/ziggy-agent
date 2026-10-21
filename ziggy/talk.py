@@ -31,7 +31,7 @@ from contextlib import ExitStack
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from . import chat, dispatch, state, worktree
+from . import chat, config, dispatch, quota, state, worktree
 from .config import Target
 from .pipeline import PipelineError
 from .worktree import GitError
@@ -42,19 +42,31 @@ ID_FORMAT = "%Y%m%d-%H%M%S"
 MAX_TITLE = 80
 LISTED = 60
 TRANSCRIPT_TURNS = 12  # turns "Ticket'a çevir" puts in the ticket body
-# Write mode: the chat's branch stays where it is (no checkout, reset, rebase …); commits are the way to keep work.
-# Neither mode schedules cloud agents of its own (RemoteTrigger) from a chat.
-WRITE_DENY = (*(f"Bash(git {cmd}:*)" for cmd in "checkout switch reset rebase branch tag push worktree".split()), "RemoteTrigger")
-# A read chat may look things up through the connectors but not act through them: every MCP tool whose name starts
-# with a writing verb is denied, on any server (`mcp__*__send_*` matches Gmail's and Slack's alike). Verified against
-# the YouTrack, GitHub, Gmail, Calendar, Slack, Docs and Strava connectors; a connector with other verbs is not covered.
+# Connectors look things up, they never act, in either mode: a chat that can read your mail or issues and also send
+# or change them is one injected sentence away from leaking them. Two layers:
+#   allowlist  once the login's MCP servers are known (from an earlier turn's init event, cached per login), a turn
+#              runs with --permission-mode dontAsk and only the reading tools of those servers allowed
+#              (`mcp__<server>__get_*`, …); any other tool that needs a permission, whatever its name, is refused.
+#              (An allow rule takes a server's own prefix: `mcp__*__get_*` is not honoured, verified.)
+#   deny list  always: every MCP tool whose name starts with a writing verb, on any server (deny rules do take
+#              `mcp__*__send_*`); the only guard on a login's first turn, before its servers are known.
 MCP_WRITE_VERBS = tuple(
     "create update delete add remove send reply forward post edit write set change assign link log manage merge push "
     "fork publish close archive move rename upload complete schedule respond request apply label unlabel mark unmark "
-    "trash untrash approve invite share batch slack_send slack_create slack_update slack_add slack_schedule "
-    "slack_complete issue_write".split())
-READ_DENY = (*chat.READ_ONLY_DENY, "Bash", "RemoteTrigger", *(f"mcp__*__{verb}" for verb in MCP_WRITE_VERBS),
-             *(f"mcp__*__{verb}_*" for verb in MCP_WRITE_VERBS))
+    "trash untrash approve invite share batch check uncheck save authenticate login logout run start stop cancel "
+    "trigger execute deploy install enable disable toggle submit revoke grant transfer pay purchase book order import "
+    "slack_send slack_create slack_update slack_add slack_schedule slack_complete issue_write".split())
+MCP_READ_VERBS = tuple("get list search find read query slack_read slack_search slack_list slack_get".split())
+MCP_READ_TOOLS = ("issue_read", "pull_request_read")  # GitHub's readers, named noun-first
+MCP_DENY = (*(f"mcp__*__{verb}" for verb in MCP_WRITE_VERBS), *(f"mcp__*__{verb}_*" for verb in MCP_WRITE_VERBS))
+# Write mode: the chat's branch stays where it is (no checkout, reset, rebase …); commits are the way to keep work.
+# Neither mode schedules cloud agents of its own (RemoteTrigger) from a chat.
+WRITE_DENY = (*(f"Bash(git {cmd}:*)" for cmd in "checkout switch reset rebase branch tag push worktree".split()), "RemoteTrigger",
+              *MCP_DENY)
+READ_DENY = (*chat.READ_ONLY_DENY, "Bash", "RemoteTrigger", *MCP_DENY)
+BASE_ALLOW = ("Read", "Grep", "Glob", "ToolSearch", "TodoWrite")
+WRITE_ALLOW = ("Edit", "Write", "MultiEdit", "NotebookEdit", "Bash")
+MCP_CACHE = "talk-mcp.json"  # under the shared state dir: {login key: [tool prefixes]}
 BUSY = "the previous message is still being answered: wait for it or stop it"
 
 
@@ -276,7 +288,8 @@ def _run_turn(target: Target, meta: dict, text: str, model: str, timeout: int) -
         # A message starting with "-" would read as an option after the boolean -p.
         prompt = "\n" + text if text.startswith("-") else text
         argv = [*dispatch.command(model, session_id, prompt, scratch, resume=bool(prev), budget_usd=target.budget_usd,
-                                  tools_deny=WRITE_DENY if write else READ_DENY, mcp=True),
+                                  tools_deny=WRITE_DENY if write else READ_DENY, mcp=True,
+                                  tools_allow=_allowlist(target, write)),
                 "--append-system-prompt", system_prompt(target, meta, cwd),
                 *(["--include-partial-messages"] if dispatch.supports("--include-partial-messages") else [])]
         env = dispatch.environment(target, _run_id(chat_id), cwd, {
@@ -321,11 +334,60 @@ def _run_turn(target: Target, meta: dict, text: str, model: str, timeout: int) -
         kill_reason = stop_path.read_text(encoding="utf-8").strip() or "stopped"
     chat._finish(turn, out_path, err_path, proc.returncode, kill_reason)
     chat._observe_quota(target, out_path)
+    _remember_servers(target, out_path)
     _record_changes(turn, cwd, head_before)
     _save(target, chat_id, turns)
     meta["updated_at"] = state.now()
     _save_meta(target, meta)
     return _turn_view(target, chat_id, turn, None)
+
+
+def _mcp_cache() -> Path:
+    return config.state_home() / MCP_CACHE
+
+
+def _tool_prefix(server: str) -> str:
+    """`claude.ai Google Calendar` -> `mcp__claude_ai_Google_Calendar`: how Claude Code names a server's tools."""
+    return "mcp__" + re.sub(r"[^A-Za-z0-9_-]", "_", server)
+
+
+def _known_servers(target: Target) -> list[str]:
+    try:
+        cached = state.read_json(_mcp_cache())
+    except (OSError, ValueError):
+        return []
+    found = cached.get(quota.account_key(target)) if isinstance(cached, dict) else None
+    return [p for p in found if isinstance(p, str) and p.startswith("mcp__")] if isinstance(found, list) else []
+
+
+def _remember_servers(target: Target, out_path: Path) -> None:
+    """The MCP servers the turn's init event listed, as tool prefixes cached for the login (the allowlist's input)."""
+    try:
+        events = dispatch.read_events(out_path.read_text(encoding="utf-8", errors="replace"))
+    except OSError:
+        return
+    init = next((e for e in events if e.get("type") == "system" and e.get("subtype") == "init"), None)
+    if not init or not isinstance(init.get("mcp_servers"), list):
+        return
+    prefixes = sorted({_tool_prefix(s["name"]) for s in init["mcp_servers"] if isinstance(s, dict) and isinstance(s.get("name"), str)})
+    try:
+        cached = state.read_json(_mcp_cache())
+    except (OSError, ValueError):
+        cached = {}
+    cached = cached if isinstance(cached, dict) else {}
+    key = quota.account_key(target)
+    if cached.get(key) != prefixes:
+        cached[key] = prefixes
+        state.write_json(_mcp_cache(), cached)
+
+
+def _allowlist(target: Target, write: bool) -> tuple[str, ...] | None:
+    """The tools a turn may use under dontAsk, or None (deny list only) while the login's servers are unknown."""
+    servers = _known_servers(target)
+    if not servers:
+        return None
+    reads = [f"{p}__{verb}_*" for p in servers for verb in MCP_READ_VERBS] + [f"{p}__{name}" for p in servers for name in MCP_READ_TOOLS]
+    return (*BASE_ALLOW, *(WRITE_ALLOW if write else ()), *reads)
 
 
 def _head(wt: Path) -> str | None:

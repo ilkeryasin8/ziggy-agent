@@ -6,7 +6,7 @@
 // one to its new name once (unless the new one is already set), then drop the old key.
 (() => {
   const rename = (key) => key.startsWith("bmad-pipeline-choice:") ? `ziggy.choice:${key.slice(21)}`
-    : key === "bmad-lang" ? "ziggy.lang" : key.startsWith("bmad.") ? `ziggy.${key.slice(5)}` : null;
+    : key === "bmad-lang" ? "ziggy.ticketlang" : key.startsWith("bmad.") ? `ziggy.${key.slice(5)}` : null;
   for (const area of [localStorage, sessionStorage]) {
     try {
       for (const key of Object.keys(area)) {
@@ -20,15 +20,18 @@
 })();
 
 const $ = (id) => document.getElementById(id);
+const EN = I18N.lang !== "tr";
+const LOCALE = EN ? "en-GB" : "tr-TR";
+const pctText = (n) => (EN ? `${n}%` : `%${n}`);  // "18%" / "%18"
 const STATUS_TR = {
-  "new": "yeni", "queued": "kuyrukta", "running": "çalışıyor", "needs-user": "soru var", "awaiting-approval": "onay bekliyor",
-  "done": "bitti", "failed": "başarısız", "error": "hata", "waiting": "bekliyor", "split": "dilimlere bölündü", "quota": "kota bekliyor",
-  "host": "bellek bekliyor",
+  "new": t("yeni"), "queued": t("kuyrukta"), "running": t("çalışıyor"), "needs-user": t("soru var"), "awaiting-approval": t("onay bekliyor"),
+  "done": t("bitti"), "failed": t("başarısız"), "error": t("hata"), "waiting": t("bekliyor"), "split": t("dilimlere bölündü"), "quota": t("kota bekliyor"), "budget": t("bütçe bekliyor"),
+  "host": t("bellek bekliyor"),
   // v1 tickets keep their old status; shown as is
-  "planning": "planlanıyor", "building": "yazılıyor", "ready-for-dev": "spec hazır", "blocked": "takıldı", "draft": "taslak",
-  "in-progress": "yazılıyor", "in-review": "review'da",
+  "planning": t("planlanıyor"), "building": t("yazılıyor"), "ready-for-dev": t("spec hazır"), "blocked": t("takıldı"), "draft": t("taslak"),
+  "in-progress": t("yazılıyor"), "in-review": t("review'da"),
 };
-const TYPE_TR = { feat: "özellik", fix: "hata", refactor: "refactor", chore: "bakım", docs: "docs", project: "PROJECT.md" };
+const TYPE_TR = { feat: t("özellik"), fix: t("hata"), refactor: "refactor", chore: t("bakım"), docs: "docs", project: "PROJECT.md" };
 let snapshot = null;
 let lastOkAt = 0;
 let drawer = null; // {target, id, tab, phase, follow, all, offset, timer, detail, tx, files}
@@ -99,29 +102,35 @@ function icon(name, cls) {
   return svg;
 }
 
+// A count with its noun: t("{0} oturum") in English holds both forms, "{0} session|{0} sessions" (Turkish has one).
+function plural(text, n, ...args) {
+  const forms = String(text).split("|");
+  return (n !== 1 && forms[1] !== undefined ? forms[1] : forms[0]).replace(/\{(\d+)\}/g, (_, i) => (i === "0" ? n : args[i - 1] ?? ""));
+}
+
 function ago(iso) {
   if (!iso) return "-";
   const s = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000);
-  if (s < 60) return "az önce";
-  if (s < 3600) return `${Math.floor(s / 60)} dk önce`;
-  if (s < 86400) return `${Math.floor(s / 3600)} sa önce`;
-  return `${Math.floor(s / 86400)} gün önce`;
+  if (s < 60) return t("az önce");
+  if (s < 3600) return t("{0} dk önce", Math.floor(s / 60));
+  if (s < 86400) return t("{0} sa önce", Math.floor(s / 3600));
+  return t("{0} gün önce", Math.floor(s / 86400));
 }
 
 function duration(sec) {
   sec = Math.max(0, sec);
   const days = Math.floor(sec / 86400), hrs = Math.floor((sec % 86400) / 3600), min = Math.floor((sec % 3600) / 60), s = Math.floor(sec % 60);
-  if (days) return `${days} g ${hrs} sa`;
-  if (hrs) return `${hrs} sa ${String(min).padStart(2, "0")} dk`;
-  if (min) return `${min} dk ${String(s).padStart(2, "0")} sn`;
-  return `${s} sn`;
+  if (days) return t("{0} g {1} sa", days, hrs);
+  if (hrs) return t("{0} sa {1} dk", hrs, String(min).padStart(2, "0"));
+  if (min) return t("{0} dk {1} sn", min, String(s).padStart(2, "0"));
+  return t("{0} sn", s);
 }
 
 const elapsed = (iso) => (iso ? duration((Date.now() - new Date(iso).getTime()) / 1000) : "");
 // A span the 1 s clock keeps current, so a card does not have to be rebuilt to tick.
 const since = (iso, cls) => h("span", { class: "since " + (cls || ""), "data-since": iso }, elapsed(iso));
 const money = (v) => (typeof v === "number" ? (v > 0 && v < 0.005 ? "<$0.01" : `$${v.toFixed(2)}`) : "-");
-const when = (iso) => (iso ? new Date(iso).toLocaleString("tr-TR", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : "-");
+const when = (iso) => (iso ? new Date(iso).toLocaleString(LOCALE, { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : "-");
 const badge = (status) => h("span", { class: `badge ${status}` }, h("span", { class: "badge-dot" }), STATUS_TR[status] || status);
 const chip = (iconName, text, cls) => h("span", { class: "meta" + (cls ? " " + cls : ""), title: typeof text === "string" ? text : null },
   icon(iconName), h("span", { class: "meta-text" }, text));
@@ -130,12 +139,12 @@ const empty = (text, iconName) => h("div", { class: "empty" }, icon(iconName || 
 const mdNode = (text) => h("div", { class: "md" }, MD.blocks(text || ""));
 
 function toast(text, bad) {
-  const t = $("toast");
-  t.replaceChildren(icon(bad ? "alert" : "check"), h("span", {}, text));
-  t.className = "toast" + (bad ? " bad" : "");
-  t.hidden = false;
+  const tk = $("toast");
+  tk.replaceChildren(icon(bad ? "alert" : "check"), h("span", {}, text));
+  tk.className = "toast" + (bad ? " bad" : "");
+  tk.hidden = false;
   clearTimeout(toast.timer);
-  toast.timer = setTimeout(() => { t.hidden = true; }, bad ? 9000 : 4000);
+  toast.timer = setTimeout(() => { tk.hidden = true; }, bad ? 9000 : 4000);
 }
 
 function confirmBox(text) {
@@ -168,6 +177,7 @@ const ctx = {
   navigate: (hash) => { location.hash = hash; },
   md: mdNode,
   confirm: confirmBox,
+  publish: (body) => withGuard(body),  // a publish request, with the guard's findings asked about (app.js withGuard)
   // Switch the open ticket to a tab; "chat" brings the chat beside the tabs into view (chat.js: "Sor" seeds it first).
   openTab: (name) => { if (drawer) switchTab(name); },
   // Open a ticket's Aşamalar tab on one stage session (review.js: commit and evidence links).
@@ -180,67 +190,86 @@ const ctx = {
 // --- actions ------------------------------------------------------------------------------------
 
 const ACTION_CONFIRM = {
-  run: (t) => t.status === "host"
-    ? `${t.id} şimdi başlatılsın mı?\nDikkat: makine bellekte zorlanıyor (${snapshot?.host?.text || "bellek dolu"}). Şimdi başlarsa komutları çok yavaş koşabilir ve zaman aşımına uğrayabilir.`
-    : t.status === "quota"
-    ? `${t.id} şimdi başlatılsın mı?\nDikkat: ${t.quota?.label || "Claude hesabı"} kullanım sınırında; ${clockAt(t.quota?.resume_at)} sıfırlanıyor. Şimdi başlarsa oturum hemen yine reddedilebilir.`
-    : t.status === "failed"
-    ? `${t.id} kaldığı aşamadan (${t.stage || "?"}) yeniden koşsun mu?\nAşama baştan, yeni bir oturumla çalışır; birkaç dolar tutabilir.`
-    : `${t.id} başlatılsın mı?\n${t.pipeline || pipelineFor(t.type)} hattı aşama aşama koşar; birkaç dolar ve 10–30 dakika tutabilir.`,
-  resume: (t) => `${t.id}: yarıda kalan oturum kaldığı yerden sürdürülsün mü?\nAynı Claude oturumu devam eder (claude --resume); bitmiş adımlar tekrarlanmaz.`,
-  stop: (t) => t.queued_at ? `${t.id} kuyruktan çıkarılsın mı?\nHenüz başlamadı; ticket olduğu yerde kalır.`
-    : `${t.id} durdurulsun mu?\nYarım kalan değişiklikler stash'e alınır, ticket 'başarısız' olur. Sonra 'Tekrar' ile aşamayı yeniden koşturabilir ya da yön değiştiren bir not yazabilirsin.`,
-  approve: (t) => `${t.id}: plan onaylansın ve koşu devam etsin mi?\n${t.gate?.stage ? `${t.gate.stage} aşamasından sonraki adım` : "Sıradaki aşama"} hemen başlar.`,
-  publish: (t) => t.pull ? `${t.id}: düzeltme commit'leri PR #${t.pull.number}'in kendi dalına (${t.pull.head}) push edilsin mi?\n${t.pr}`
-      + (t.pull_foreign ? `\n\nDikkat: bu PR ${t.pull.author} kullanıcısının; commit'ler onun dalına gider.` : "")
-    : t.pr ? `${t.id}: ${t.branch} dalındaki yeni commit'ler push edilip PR güncellensin mi?\n${t.pr}`
-    : `${t.id}: ${t.branch} dalı ${t.repo || "GitHub"} reposuna push edilip draft PR açılsın mı?\nReady yapmak ve merge sende kalır.`
-      + (t.stack_base ? `\n\nYığının dilimi: PR'ın tabanı ${t.base_branch}. Alttaki dilimlerin PR'ı yoksa önce onlar (draft olarak) açılır.` : "")
-      + protectedWarning(t),
-  protected_apply: (t) => `${t.id}: korumalı dosya değişikliği (${(t.needs_you?.patch?.files || []).join(", ")}) ${t.branch} dalına uygulanıp commit edilsin mi?\n`
-    + (t.needs_you?.patch?.replaces?.length
-      ? `Bu yama ${replacesText(t.needs_you.patch)}: dosyanın içeriği bu yamanın hazırlandığı hâline (önceki uygulanan değişiklik olmadan) bu yama eklenerek yazılır.`
-      : "Yama dalın şimdiki HEAD'inde yeniden denenir; temiz uygulanmazsa hiçbir şey değişmez.")
-    + (t.pr ? "\n\nPR açık: commit sonrası 'PR'ı güncelle' ile gönderirsin." : ""),
-  review: (t) => `${t.id} dalı Codex'e review ettirilsin mi?\n${t.base_branch}'e göre fark incelenir (1–3 dk, ChatGPT hesabından). Dala dokunulmaz.`,
-  split: (t) => `${t.id}: plan ${t.split_offer?.length || "?"} dilime bölünsün mü?\nHer dilim kendi ticket'ı, dalı ve draft PR'ı olur; her dal bir alttakinin üstüne yığılır. `
-    + "İlk dilim hemen başlar (onay verilmiş sayılır), diğerleri bir önceki bitince sırayla. Bu ticket dilimlerin kabı olur, kendisi kod yazmaz.",
-  restack: (t) => `${t.id}: ${t.branch} dalı ${t.restack?.onto || "yeni tabanı"} üstüne yeniden düzenlensin mi (git rebase --onto)?\n`
-    + "Çakışma olursa dal olduğu gibi kalır. Sonuç gösterilir; PR'a push ayrıca senin onayınla yapılır.",
-  restack_push: (t) => `${t.id}: yeniden düzenlenen ${t.branch} dalı PR'ına force-with-lease ile push edilsin mi?\n${t.pr || ""}\n`
-    + "Yalnızca bu ticket'ın kendi dalı; son push'tan beri dala başkası push ettiyse push reddedilir.",
+  run: (tk) => tk.status === "host"
+    ? t("{0} şimdi başlatılsın mı?\nDikkat: makine bellekte zorlanıyor ({1}). Şimdi başlarsa komutları çok yavaş koşabilir ve zaman aşımına uğrayabilir.", tk.id, snapshot?.host?.text || t("bellek dolu"))
+    : tk.status === "quota"
+    ? t("{0} şimdi başlatılsın mı?\nDikkat: {1} kullanım sınırında; {2} sıfırlanıyor. Şimdi başlarsa oturum hemen yine reddedilebilir.", tk.id, tk.quota?.label || t("Claude hesabı"), clockAt(tk.quota?.resume_at))
+    : tk.status === "budget"
+    ? t("{0} şimdi başlatılsın mı?\nDikkat: {1} bugünkü bütçesini ({2}) doldurdu; şimdi başlarsa sınırın üstünde harcar.", tk.id, tk.target, money(tk.budget?.cap))
+    : tk.status === "failed"
+    ? t("{0} kaldığı aşamadan ({1}) yeniden koşsun mu?\nAşama baştan, yeni bir oturumla çalışır; birkaç dolar tutabilir.", tk.id, tk.stage || "?")
+    : t("{0} başlatılsın mı?\n{1} hattı aşama aşama koşar; birkaç dolar ve 10–30 dakika tutabilir.", tk.id, tk.pipeline || pipelineFor(tk.type)),
+  resume: (tk) => t("{0}: yarıda kalan oturum kaldığı yerden sürdürülsün mü?\nAynı Claude oturumu devam eder (claude --resume); bitmiş adımlar tekrarlanmaz.", tk.id),
+  stop: (tk) => tk.queued_at ? t("{0} kuyruktan çıkarılsın mı?\nHenüz başlamadı; ticket olduğu yerde kalır.", tk.id)
+    : t("{0} durdurulsun mu?\nYarım kalan değişiklikler stash'e alınır, ticket 'başarısız' olur. Sonra 'Tekrar' ile aşamayı yeniden koşturabilir ya da yön değiştiren bir not yazabilirsin.", tk.id),
+  approve: (tk) => t("{0}: plan onaylansın ve koşu devam etsin mi?\n{1} hemen başlar.", tk.id, tk.gate?.stage ? t("{0} aşamasından sonraki adım", tk.gate.stage) : t("Sıradaki aşama")),
+  publish: (tk) => tk.pull ? t("{0}: düzeltme commit'leri PR #{1}'in kendi dalına ({2}) push edilsin mi?\n{3}", tk.id, tk.pull.number, tk.pull.head, tk.pr)
+      + (tk.pull_foreign ? t("\n\nDikkat: bu PR {0} kullanıcısının; commit'ler onun dalına gider.", tk.pull.author) : "")
+    : tk.pr ? t("{0}: {1} dalındaki yeni commit'ler push edilip PR güncellensin mi?\n{2}", tk.id, tk.branch, tk.pr)
+    : t("{0}: {1} dalı {2} reposuna push edilip draft PR açılsın mı?\nReady yapmak ve merge sende kalır.", tk.id, tk.branch, tk.repo || "GitHub")
+      + (tk.stack_base ? t("\n\nYığının dilimi: PR'ın tabanı {0}. Alttaki dilimlerin PR'ı yoksa önce onlar (draft olarak) açılır.", tk.base_branch) : "")
+      + protectedWarning(tk),
+  protected_apply: (tk) => t("{0}: korumalı dosya değişikliği ({1}) {2} dalına uygulanıp commit edilsin mi?\n", tk.id, (tk.needs_you?.patch?.files || []).join(", "), tk.branch)
+    + (tk.needs_you?.patch?.replaces?.length
+      ? t("Bu yama {0}: dosyanın içeriği bu yamanın hazırlandığı hâline (önceki uygulanan değişiklik olmadan) bu yama eklenerek yazılır.", replacesText(tk.needs_you.patch))
+      : t("Yama dalın şimdiki HEAD'inde yeniden denenir; temiz uygulanmazsa hiçbir şey değişmez."))
+    + (tk.pr ? t("\n\nPR açık: commit sonrası 'PR'ı güncelle' ile gönderirsin.") : ""),
+  review: (tk) => t("{0} dalı Codex'e review ettirilsin mi?\n{1}'e göre fark incelenir (1–3 dk, ChatGPT hesabından). Dala dokunulmaz.", tk.id, tk.base_branch),
+  split: (tk) => t("{0}: plan {1} dilime bölünsün mü?\nHer dilim kendi ticket'ı, dalı ve draft PR'ı olur; her dal bir alttakinin üstüne yığılır. ", tk.id, tk.split_offer?.length || "?")
+    + t("İlk dilim hemen başlar (onay verilmiş sayılır), diğerleri bir önceki bitince sırayla. Bu ticket dilimlerin kabı olur, kendisi kod yazmaz."),
+  restack: (tk) => t("{0}: {1} dalı {2} üstüne yeniden düzenlensin mi (git rebase --onto)?\n", tk.id, tk.branch, tk.restack?.onto || t("yeni tabanı"))
+    + t("Çakışma olursa dal olduğu gibi kalır. Sonuç gösterilir; PR'a push ayrıca senin onayınla yapılır."),
+  restack_push: (tk) => t("{0}: yeniden düzenlenen {1} dalı PR'ına force-with-lease ile push edilsin mi?\n{2}\n", tk.id, tk.branch, tk.pr || "")
+    + t("Yalnızca bu ticket'ın kendi dalı; son push'tan beri dala başkası push ettiyse push reddedilir."),
 };
 const ACTION_DONE = {
-  resume: "oturum kaldığı yerden sürüyor", review: "Codex review başladı", fix: "bulgular plana eklendi, düzeltme koşusu başladı",
-  dismiss: "kapatıldı; aynı olay bir daha gösterilmez",
-  post_review: "review PR'a yorum olarak eklendi", answer: "cevap kaydedildi, koşu devam ediyor", approve: "onaylandı, koşu devam ediyor",
-  run: "başladı", publish: "push ve PR başladı", cleanup: "worktree temizleniyor; dal kalıyor",
-  split: "dilimlere bölündü; ilk dilim başladı", restack: "yeniden düzenleniyor", restack_push: "yeniden düzenlenen dal push ediliyor",
-  protected_apply: "korumalı dosya değişikliği uygulandı ve commit edildi", protected_reject: "korumalı dosya değişikliği reddedildi",
+  resume: t("oturum kaldığı yerden sürüyor"), review: t("Codex review başladı"), fix: t("bulgular plana eklendi, düzeltme koşusu başladı"),
+  dismiss: t("kapatıldı; aynı olay bir daha gösterilmez"),
+  post_review: t("review PR'a yorum olarak eklendi"), answer: t("cevap kaydedildi, koşu devam ediyor"), approve: t("onaylandı, koşu devam ediyor"),
+  run: t("başladı"), publish: t("push ve PR başladı"), cleanup: t("worktree temizleniyor; dal kalıyor"),
+  split: t("dilimlere bölündü; ilk dilim başladı"), restack: t("yeniden düzenleniyor"), restack_push: t("yeniden düzenlenen dal push ediliyor"),
+  protected_apply: t("korumalı dosya değişikliği uygulandı ve commit edildi"), protected_reject: t("korumalı dosya değişikliği reddedildi"),
 };
 // Publishing never waits for a protected file change; the confirm (and the review page's PR form) only says one waits.
-const protectedWarning = (t) => (t.protected_pending?.length
-  ? `\n\nOnay bekleyen korumalı dosya değişikliği var (${[...new Set(t.protected_pending.flat())].join(", ")}); PR onsuz açılır.` : "");
+const protectedWarning = (tk) => (tk.protected_pending?.length
+  ? t("\n\nOnay bekleyen korumalı dosya değişikliği var ({0}); PR onsuz açılır.", [...new Set(tk.protected_pending.flat())].join(", ")) : "");
 const NUDGE_DONE = {
-  interrupt: "aşama durduruluyor; kendi oturumunda mesajınla devam edecek",
-  queued: "mesaj kaydedildi; aşama başlayınca önce onu okuyacak",
+  interrupt: t("aşama durduruluyor; kendi oturumunda mesajınla devam edecek"),
+  queued: t("mesaj kaydedildi; aşama başlayınca önce onu okuyacak"),
 };
 
 const pipelineFor = (type) => ({ feat: "feat", fix: "fix", project: "project" }[type] || "chore");
 
-async function act(t, action, text, extra) {
-  if (ACTION_CONFIRM[action] && !(await confirmBox(ACTION_CONFIRM[action]({ ...t, repo: targetRepo(t.target) })))) return false;
+// A publish guard.py stopped (files that run in CI or steer agents, a credential, invisible characters): show what
+// it found and, if you agree, send the same request again approving exactly those findings.
+const GUARD_MARKER = "publish needs approval:";
+async function withGuard(body) {
   try {
-    if (action === "publish" && t.pull_foreign) text = "foreign-ok";  // the confirm above named the owner
-    const out = await api("/api/action", { target: t.target, id: t.id, action, text, ...(extra || {}) });
-    if (out.job?.queued) { toast(`${t.id}: kuyruğa alındı; projedeki koşu slotları dolu, sırası gelince başlar`); refresh(); return true; }
-    const label = action === "stop" ? (t.queued_at ? "kuyruktan çıkarıldı" : "durdurma istendi")
+    return await api("/api/action", body);
+  } catch (e) {
+    if (!String(e.message).startsWith(GUARD_MARKER)) throw e;
+    const shown = e.message.slice(GUARD_MARKER.length).trim();
+    if (!(await confirmBox(t("Yayından önce bakman gereken bulgular var:\n\n{0}\n\nDiff'e baktıysan ve bunlar beklenen değişikliklerse onaylayıp yayınla.", shown)))) {
+      throw new Error(t("yayın iptal edildi"));
+    }
+    return api("/api/action", { ...body, approve_findings: true });
+  }
+}
+
+async function act(tk, action, text, extra) {
+  if (ACTION_CONFIRM[action] && !(await confirmBox(ACTION_CONFIRM[action]({ ...tk, repo: targetRepo(tk.target) })))) return false;
+  try {
+    if (action === "publish" && tk.pull_foreign) text = "foreign-ok";  // the confirm above named the owner
+    const body = { target: tk.target, id: tk.id, action, text, ...(extra || {}) };
+    const out = action === "publish" ? await withGuard(body) : await api("/api/action", body);
+    if (out.job?.queued) { toast(t("{0}: kuyruğa alındı; projedeki koşu slotları dolu, sırası gelince başlar", tk.id)); refresh(); return true; }
+    const label = action === "stop" ? (tk.queued_at ? t("kuyruktan çıkarıldı") : t("durdurma istendi"))
       : action === "nudge" ? NUDGE_DONE[out.nudged?.delivery] || out.nudged?.message : ACTION_DONE[action];
-    toast(`${t.id}: ${label || action + " başladı"}`);
+    toast(`${tk.id}: ${label || action + t(" başladı")}`);
     refresh();
     return true;
   } catch (e) {
-    toast(`${t.id}: ${e.message}`, true);
+    toast(`${tk.id}: ${e.message}`, true);
     return false;
   }
 }
@@ -249,76 +278,76 @@ const targetRepo = (name) => (snapshot?.targets.find((x) => x.name === name) || 
 const rowOf = (target, id) => snapshot?.tickets.find((x) => x.target === target && x.id === id);
 
 // A waiting ticket's line: what it waits for ("Bekliyor: local-3 bitince").
-const waitText = (t) => (t.waiting_for?.length ? `Bekliyor: ${t.waiting_for.map((d) => d.id).join(", ")} bitince` : "Bekliyor");
+const waitText = (tk) => (tk.waiting_for?.length ? t("Bekliyor: {0} bitince", tk.waiting_for.map((d) => d.id).join(", ")) : t("Bekliyor"));
 
 // What a running row says: waiting in line for a run slot, waiting out a retry backoff, or the stage under way.
-function runLabel(t) {
-  if (t.queued_at) return `kuyrukta · ${ago(t.queued_at)} beri`;
-  const stage = t.stage || t.phase || t.last_job?.command || "hazırlanıyor";
-  if (t.retry_at) return `${stage} · ${duration(Math.max(0, (new Date(t.retry_at).getTime() - Date.now()) / 1000))} sonra yeniden denenecek`;
-  return `${stage}${t.visit > 1 ? ` #${t.visit}` : ""}${t.model ? " · " + t.model : ""}`;
+function runLabel(tk) {
+  if (tk.queued_at) return t("kuyrukta · {0} beri", ago(tk.queued_at));
+  const stage = tk.stage || tk.phase || tk.last_job?.command || t("hazırlanıyor");
+  if (tk.retry_at) return t("{0} · {1} sonra yeniden denenecek", stage, duration(Math.max(0, (new Date(tk.retry_at).getTime() - Date.now()) / 1000)));
+  return `${stage}${tk.visit > 1 ? ` #${tk.visit}` : ""}${tk.model ? " · " + tk.model : ""}`;
 }
 
-function actionButtons(t, compact) {
+function actionButtons(tk, compact) {
   const cls = compact ? "small" : "";
   const b = (iconName, label, action, extra) =>
-    h("button", { class: `${cls} ${extra || ""}`, onclick: (e) => { e.stopPropagation(); act(t, action); } }, icon(iconName), label);
+    h("button", { class: `${cls} ${extra || ""}`, onclick: (e) => { e.stopPropagation(); act(tk, action); } }, icon(iconName), label);
   const open = (iconName, label, tab, extra) =>
-    h("button", { class: `${cls} ${extra || ""}`, onclick: (e) => { e.stopPropagation(); openDrawer(t, tab); } }, icon(iconName), label);
-  if (t.running && t.last_job?.command?.startsWith("review")) return [h("button", { class: cls, disabled: true }, icon("eye"), "Codex inceliyor…")];
-  if (t.running && t.last_job?.state === "running" && t.last_job.command.startsWith("cleanup")) return [h("button", { class: cls, disabled: true }, icon("x"), "Temizleniyor…")];
-  if (t.running) {
+    h("button", { class: `${cls} ${extra || ""}`, onclick: (e) => { e.stopPropagation(); openDrawer(tk, tab); } }, icon(iconName), label);
+  if (tk.running && tk.last_job?.command?.startsWith("review")) return [h("button", { class: cls, disabled: true }, icon("eye"), t("Codex inceliyor…"))];
+  if (tk.running && tk.last_job?.state === "running" && tk.last_job.command.startsWith("cleanup")) return [h("button", { class: cls, disabled: true }, icon("x"), t("Temizleniyor…"))];
+  if (tk.running) {
     return [
-      t.legacy ? "" : h("button", { class: cls, title: "Ajana mesaj gönder: çalışmayı bırakmadan yön verir",
-        onclick: (e) => { e.stopPropagation(); nudgeDialog(t); } }, icon("message"), "Yönlendir"),
-      b("stop", t.queued_at ? "Kuyruktan çıkar" : "Durdur", "stop", "danger"),
+      tk.legacy ? "" : h("button", { class: cls, title: t("Ajana mesaj gönder: çalışmayı bırakmadan yön verir"),
+        onclick: (e) => { e.stopPropagation(); nudgeDialog(tk); } }, icon("message"), t("Yönlendir")),
+      b("stop", tk.queued_at ? t("Kuyruktan çıkar") : t("Durdur"), "stop", "danger"),
     ];
   }
-  if (t.archived || t.status === "error") return [];  // worktree removed: nothing to run, review or push
+  if (tk.archived || tk.status === "error") return [];  // worktree removed: nothing to run, review or push
   const out = [];
-  if (t.legacy) {  // made by the BMad version: publish, review and clean up still work, runs do not
-    if (t.status === "done" && !t.pr) out.push(b("pr", "Draft PR aç", "publish", "primary"));
-    if (t.status === "done" && t.needs_you?.kind === "push" && !t.pull?.fork) out.push(b("upload", "PR'ı güncelle", "publish", "primary"));
+  if (tk.legacy) {  // made by the BMad version: publish, review and clean up still work, runs do not
+    if (tk.status === "done" && !tk.pr) out.push(b("pr", t("Draft PR aç"), "publish", "primary"));
+    if (tk.status === "done" && tk.needs_you?.kind === "push" && !tk.pull?.fork) out.push(b("upload", t("PR'ı güncelle"), "publish", "primary"));
     return out;
   }
-  if (t.status === "new") out.push(b("play", "Başlat", "run"));
-  if (["quota", "host"].includes(t.status)) {  // held for the login's limit or the machine's memory: it goes on by itself; this starts it now (with a warning)
-    out.push(h("button", { class: cls, onclick: (e) => { e.stopPropagation(); act(t, "run", "", { now: true }); } }, icon("play"), "Şimdi başlat"));
+  if (tk.status === "new") out.push(b("play", t("Başlat"), "run"));
+  if (["quota", "host", "budget"].includes(tk.status)) {  // held for the login's limit, the machine's memory or the day's budget: it goes on by itself; this starts it now (with a warning)
+    out.push(h("button", { class: cls, onclick: (e) => { e.stopPropagation(); act(tk, "run", "", { now: true }); } }, icon("play"), t("Şimdi başlat")));
   }
-  if (t.status === "needs-user") out.push(open("message", "Cevapla", "questions", "primary"));
-  if (t.status === "awaiting-approval") {
-    out.push(b("check", "Onayla", "approve", "primary"));
-    if (t.split_offer) out.push(b("layers", "Dilimlere böl", "split"));
+  if (tk.status === "needs-user") out.push(open("message", t("Cevapla"), "questions", "primary"));
+  if (tk.status === "awaiting-approval") {
+    out.push(b("check", t("Onayla"), "approve", "primary"));
+    if (tk.split_offer) out.push(b("layers", t("Dilimlere böl"), "split"));
     out.push(open("spec", "Plan", "plan"));
   }
-  if (t.restack) {
-    out.push(t.restack.rebased ? b("upload", "Düzenlenen dalı push et", "restack_push", "primary") : b("retry", "Yeniden düzenle", "restack", "primary"));
+  if (tk.restack) {
+    out.push(tk.restack.rebased ? b("upload", t("Düzenlenen dalı push et"), "restack_push", "primary") : b("retry", t("Yeniden düzenle"), "restack", "primary"));
   }
-  if (t.status === "failed") {
-    if (t.resumable) out.push(b("play", "Devam", "resume", "primary"));
-    if (t.recheckable) out.push(b("check", "Yalnız check'ler", "recheck"));
-    out.push(b("retry", "Tekrar", "run"));
+  if (tk.status === "failed") {
+    if (tk.resumable) out.push(b("play", t("Devam"), "resume", "primary"));
+    if (tk.recheckable) out.push(b("check", t("Yalnız check'ler"), "recheck"));
+    out.push(b("retry", t("Tekrar"), "run"));
   }
-  if (t.status === "done" && !t.pr) out.push(b("pr", "Draft PR aç", "publish", "primary"));
-  if (t.status === "done" && t.needs_you?.kind === "push" && !t.pull?.fork) out.push(b("upload", t.pull ? "PR'a gönder" : "PR'ı güncelle", "publish", "primary"));
-  if (t.drafts) out.push(h("a", { class: `button ${cls}`, href: ReviewPage.hash(t.target, t.id), onclick: (e) => e.stopPropagation() }, icon("diff"), `Yorumlar (${t.drafts})`));
-  if (t.status === "done" && !["MERGED", "CLOSED"].includes(t.pr_state)) out.push(...reviewStep(t, cls));
-  if (!compact && t.worktree && ["done", "failed"].includes(t.status)) {
-    out.push(h("button", { class: "ghost", title: "Worktree'yi sil (önce teardown); dal kalır",
-      onclick: (e) => { e.stopPropagation(); cleanupDialog(t); } }, icon("x"), "Temizle"));
+  if (tk.status === "done" && !tk.pr) out.push(b("pr", t("Draft PR aç"), "publish", "primary"));
+  if (tk.status === "done" && tk.needs_you?.kind === "push" && !tk.pull?.fork) out.push(b("upload", tk.pull ? t("PR'a gönder") : t("PR'ı güncelle"), "publish", "primary"));
+  if (tk.drafts) out.push(h("a", { class: `button ${cls}`, href: ReviewPage.hash(tk.target, tk.id), onclick: (e) => e.stopPropagation() }, icon("diff"), t("Yorumlar ({0})", tk.drafts)));
+  if (tk.status === "done" && !["MERGED", "CLOSED"].includes(tk.pr_state)) out.push(...reviewStep(tk, cls));
+  if (!compact && tk.worktree && ["done", "failed"].includes(tk.status)) {
+    out.push(h("button", { class: "ghost", title: t("Worktree'yi sil (önce teardown); dal kalır"),
+      onclick: (e) => { e.stopPropagation(); cleanupDialog(tk); } }, icon("x"), t("Temizle")));
   }
   return out;
 }
 
 // What the latest Codex review leaves to do: nothing but the PR when it is clean and still covers
 // the branch, the findings when it has some, and a new review when there is none or the branch moved on.
-function reviewStep(t, cls) {
-  const r = t.review;
-  const again = (label) => h("button", { class: cls, onclick: (e) => { e.stopPropagation(); act(t, "review"); } }, icon("eye"), label);
+function reviewStep(tk, cls) {
+  const r = tk.review;
+  const again = (label) => h("button", { class: cls, onclick: (e) => { e.stopPropagation(); act(tk, "review"); } }, icon("eye"), label);
   if (!r || r.state !== "ok") return [again("Codex review")];
-  if (r.stale) return [again("Yeniden review")];
-  if (r.findings && !t.legacy) return [h("button", { class: `${cls}`, onclick: (e) => { e.stopPropagation(); openDrawer(t, "review"); } }, icon("hammer"), "Bulguları düzelt")];
-  if (t.pr && t.needs_you?.kind !== "push") return [h("a", { class: `button ${cls}`, href: t.pr, target: "_blank", rel: "noopener noreferrer", onclick: (e) => e.stopPropagation() }, icon("pr"), "PR'ı aç", icon("external"))];
+  if (r.stale) return [again(t("Yeniden review"))];
+  if (r.findings && !tk.legacy) return [h("button", { class: `${cls}`, onclick: (e) => { e.stopPropagation(); openDrawer(tk, "review"); } }, icon("hammer"), t("Bulguları düzelt"))];
+  if (tk.pr && tk.needs_you?.kind !== "push") return [h("a", { class: `button ${cls}`, href: tk.pr, target: "_blank", rel: "noopener noreferrer", onclick: (e) => e.stopPropagation() }, icon("pr"), t("PR'ı aç"), icon("external"))];
   return [];
 }
 
@@ -327,74 +356,75 @@ function reviewStep(t, cls) {
 // takes the ticket's state (running or queued); while the ticket waits for a question's answer or
 // an approval, the stage that stopped (st.stage) shows as waiting.
 
-const STEP_TR = { done: "bitti", active: "çalışıyor", waiting: "seni bekliyor", queued: "kuyrukta", failed: "başarısız", stopped: "durdu", pending: "başlamadı", skipped: "atlandı" };
+const STEP_TR = { done: t("bitti"), active: t("çalışıyor"), waiting: t("seni bekliyor"), queued: t("kuyrukta"), failed: t("başarısız"), stopped: t("durdu"), pending: t("başlamadı"), skipped: t("atlandı") };
 
-function stepState(t, s) {
-  if (s.state === "current") return t.queued_at || ["quota", "host"].includes(t.status) ? "queued" : t.running ? "active" : "stopped";
-  if (s.id === t.stage && ["needs-user", "awaiting-approval"].includes(t.status)) return "waiting";
+function stepState(tk, s) {
+  if (s.state === "current") return tk.queued_at || ["quota", "host"].includes(tk.status) ? "queued" : tk.running ? "active" : "stopped";
+  if (s.id === tk.stage && ["needs-user", "awaiting-approval"].includes(tk.status)) return "waiting";
   return s.state;
 }
 
-function pipelineBar(t, compact) {
-  const stages = t.stages || [];
-  if (!stages.length || t.status === "split") return "";  // a split ticket runs nothing more; its slices do
-  const states = stages.map((s) => stepState(t, s));
-  const label = "Hat: " + stages.map((s, i) => `${s.title || s.id} ${STEP_TR[states[i]] || states[i]}${s.visits > 1 ? ` ×${s.visits}` : ""}`).join(", ");
+function pipelineBar(tk, compact) {
+  const stages = tk.stages || [];
+  if (!stages.length || tk.status === "split") return "";  // a split ticket runs nothing more; its slices do
+  const states = stages.map((s) => stepState(tk, s));
+  const label = t("Hat: {0}", stages.map((s, i) => `${t(s.title || s.id)} ${STEP_TR[states[i]] || states[i]}${s.visits > 1 ? ` ×${s.visits}` : ""}`).join(", "));
   return h("ol", { class: "pbar" + (compact ? " compact" : ""), role: "img", "aria-label": label, title: label },
     stages.map((s, i) => h("li", { class: `pstep pstep-${states[i]}` },
       h("span", { class: "pstep-bar" }),
-      compact ? "" : h("span", { class: "pstep-name" }, s.title || s.id, s.visits > 1 ? ` ×${s.visits}` : ""))));
+      compact ? "" : h("span", { class: "pstep-name" }, t(s.title || s.id), s.visits > 1 ? ` ×${s.visits}` : ""))));
 }
 
-const typeTag = (t) => h("span", { class: "type" + (t.type === "project" ? " project" : "") }, t.type || "");
-const bmadTag = (t) => t.pipeline === "bmad" ? h("span", { class: "tag", title: "BMad build-auto planlar ve kurar; kontroller, review ve PR bu pipeline'ın" }, "BMad hattı") : "";
+const typeTag = (tk) => h("span", { class: "type" + (tk.type === "project" ? " project" : "") }, tk.type || "");
+const bmadTag = (tk) => tk.pipeline === "bmad" ? h("span", { class: "tag", title: t("BMad build-auto planlar ve kurar; kontroller, review ve PR bu pipeline'ın") }, t("BMad hattı")) : "";
 
 // BMad in a project (snapshot targets[].bmad): installed on the base branch, and this machine's per-developer files.
 function bmadText(b) {
-  if (!b?.installed) return "BMad yok";
-  return b.missing_local?.length ? "BMad kurulu · yerel dosya eksik" : `BMad kurulu${b.version ? ` (${b.version})` : ""}`;
+  if (!b?.installed) return t("BMad yok");
+  return b.missing_local?.length ? t("BMad kurulu · yerel dosya eksik") : t("BMad kurulu{0}", b.version ? ` (${b.version})` : "");
 }
-function bmadPill(t) {
-  const b = t.bmad;
+function bmadPill(tk) {
+  const b = tk.bmad;
   if (!b) return "";
   const cls = !b.installed ? "mute" : b.missing_local?.length ? "warn" : "ok";
-  const title = !b.installed ? b.reason || "Taban dalda BMad yok"
-    : b.missing_local?.length ? `Ana checkout'ta eksik (BMad kurulumunu orada çalıştır):\n${b.missing_local.join("\n")}` : b.reason || "";
+  const title = !b.installed ? t(b.reason || "") || t("Taban dalda BMad yok")
+    : b.missing_local?.length ? t("Ana checkout'ta eksik (BMad kurulumunu orada çalıştır):\n{0}", b.missing_local.join("\n")) : t(b.reason || "");
   return h("span", { class: `pill ${cls}`, title }, bmadText(b));
 }
 const bmadReady = (b) => !!(b?.installed && !b.missing_local?.length);
 
 // Controlled projects (mode = "controlled"): every plan waits for approval, dependants ask before they start, no PR replies.
-const CONTROLLED_TITLE = "Kontrollü mod: her ticket plan onayında durur, bağımlı ticket'lar sormadan başlamaz, PR yorumlarına yanıt yazılmaz";
-const controlledPill = (x) => x.mode === "controlled" ? h("span", { class: "pill info", title: CONTROLLED_TITLE }, "Kontrollü") : "";
-const controlledTag = (x) => x.mode === "controlled" ? h("span", { class: "tag", title: CONTROLLED_TITLE }, "Kontrollü") : "";
+const CONTROLLED_TITLE = t("Kontrollü mod: her ticket plan onayında durur, bağımlı ticket'lar sormadan başlamaz, PR yorumlarına yanıt yazılmaz");
+const controlledPill = (x) => x.mode === "controlled" ? h("span", { class: "pill info", title: CONTROLLED_TITLE }, t("Kontrollü")) : "";
+const controlledTag = (x) => x.mode === "controlled" ? h("span", { class: "tag", title: CONTROLLED_TITLE }, t("Kontrollü")) : "";
 
 // A time as the cards say it ("15:05", "17.10 09:00" when not today) and with the Turkish locative ("15:05'te"),
 // read by its last word: 05 "beş" → 'te, 30 "otuz" → 'da, 15:00 "on beş" → 'te.
 function clockText(iso) {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "?";
-  const time = d.toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" });
+  const time = d.toLocaleTimeString(LOCALE, { hour: "2-digit", minute: "2-digit" });
   return d.toDateString() === new Date().toDateString() ? time : `${String(d.getDate()).padStart(2, "0")}.${String(d.getMonth() + 1).padStart(2, "0")} ${time}`;
 }
 const LOC_ONES = ["", "de", "de", "te", "te", "te", "da", "de", "de", "da"];
 const LOC_TENS = { 0: "da", 10: "da", 20: "de", 30: "da", 40: "ta", 50: "de" };
 function clockAt(iso) {
   const text = clockText(iso);
+  if (EN) return text;  // English has no locative suffix
   const [hh, mm] = text.split(" ").pop().split(":").map(Number);
   const n = mm || hh || 0;
   return `${text}'${LOC_ONES[n % 10] || LOC_TENS[n - (n % 10)] || "de"}`;
 }
 // A ticket held for its Claude login's usage limit (status quota): rejected mid-stage it continues its session, held
 // before a stage it starts it.
-const quotaText = (t) => `Kota doldu · ${clockAt(t.quota?.resume_at)} ${t.quota?.reason === "rejected" ? "devam" : "başlar"}`;
-const quotaDetail = (t) => `${t.quota?.label || "Claude hesabı"} kullanım sınırına ulaştı. `
-  + (t.quota?.reason === "rejected" ? `${t.quota?.stage || "Aşama"} oturumu ${clockAt(t.quota?.resume_at)} kaldığı yerden devam eder.`
-    : `${t.quota?.stage || "Sıradaki aşama"} ${clockAt(t.quota?.resume_at)} başlar.`);
+const quotaText = (tk) => (tk.quota?.reason === "rejected" ? t("Kota doldu · {0} devam", clockAt(tk.quota?.resume_at)) : t("Kota doldu · {0} başlar", clockAt(tk.quota?.resume_at)));
+const quotaDetail = (tk) => t("{0} kullanım sınırına ulaştı. ", tk.quota?.label || t("Claude hesabı"))
+  + (tk.quota?.reason === "rejected" ? t("{0} oturumu {1} kaldığı yerden devam eder.", tk.quota?.stage || t("Aşama"), clockAt(tk.quota?.resume_at))
+    : t("{0} {1} başlar.", tk.quota?.stage || t("Sıradaki aşama"), clockAt(tk.quota?.resume_at)));
 // A ticket held while the machine is short of memory (status host): it starts after two calm panel ticks.
-const HOST_TEXT = "Makine bellekte zorlanıyor · bekliyor";
-const hostDetail = (t) => `${t.host?.stage || "Sıradaki aşama"} başlamadı: ${snapshot?.host?.text || "bellek dolu"}. `
-  + "Makine iki dakika üst üste rahat olunca kendiliğinden başlar (her dakika bir ticket).";
+const HOST_TEXT = t("Makine bellekte zorlanıyor · bekliyor");
+const hostDetail = (tk) => t("{0} başlamadı: {1}. ", tk.host?.stage || t("Sıradaki aşama"), snapshot?.host?.text || t("bellek dolu"))
+  + t("Makine iki dakika üst üste rahat olunca kendiliğinden başlar (her dakika bir ticket).");
 
 // --- health bar ---------------------------------------------------------------------------------
 // One line: "Her şey yolunda" or "N sorun", the quiet facts inline, problems as full chips below.
@@ -402,34 +432,34 @@ const hostDetail = (t) => `${t.host?.stage || "Sıradaki aşama"} başlamadı: $
 function healthItems(s) {
   const items = [];
   const connOld = Date.now() - lastOkAt > 45000;
-  items.push({ key: "panel", tone: connOld ? "bad" : "ok", compact: `güncellendi ${new Date(lastOkAt).toLocaleTimeString("tr-TR")}`,
-    title: "Panel", text: connOld ? "45 sn'dir güncellenmiyor" : `çalışıyor · ${duration(s.uptime_s)}` });
-  items.push({ key: "claude", tone: s.claude_cli ? "ok" : "bad", compact: s.claude_cli ? null : "claude CLI yok",
-    title: "Claude CLI", text: s.claude_cli ? "bulundu" : "bulunamadı: koşular başlayamaz (ZIGGY_CLAUDE ya da PATH)" });
-  for (const t of s.targets) {
-    if (t.error) { items.push({ key: `t-${t.name}`, tone: "bad", compact: `${t.name}: config hatası`, title: t.name, text: t.error }); continue; }
-    const used = (t.active || []).length;
-    items.push({ key: `t-${t.name}`, tone: "ok", compact: null, title: t.name, text: `${used}/${t.max_active} koşu slotu dolu` });
-    (t.warnings || []).forEach((w, i) => items.push({ key: `w-${t.name}-${i}`, tone: "warn", compact: null, title: `${t.name} config`, text: w }));
+  items.push({ key: "panel", tone: connOld ? "bad" : "ok", compact: t("güncellendi {0}", new Date(lastOkAt).toLocaleTimeString(LOCALE)),
+    title: t("Panel"), text: connOld ? t("45 sn'dir güncellenmiyor") : t("çalışıyor · {0}", duration(s.uptime_s)) });
+  items.push({ key: "claude", tone: s.claude_cli ? "ok" : "bad", compact: s.claude_cli ? null : t("claude CLI yok"),
+    title: "Claude CLI", text: s.claude_cli ? t("bulundu") : t("bulunamadı: koşular başlayamaz (ZIGGY_CLAUDE ya da PATH)") });
+  for (const tk of s.targets) {
+    if (tk.error) { items.push({ key: `t-${tk.name}`, tone: "bad", compact: t("{0}: config hatası", tk.name), title: tk.name, text: t(tk.error) }); continue; }
+    const used = (tk.active || []).length;
+    items.push({ key: `t-${tk.name}`, tone: "ok", compact: null, title: tk.name, text: t("{0}/{1} koşu slotu dolu", used, tk.max_active) });
+    (tk.warnings || []).forEach((w, i) => items.push({ key: `w-${tk.name}-${i}`, tone: "warn", compact: null, title: `${tk.name} config`, text: t(w) }));
   }
   const sync = s.pr_sync || {};
-  items.push({ key: "sync", tone: sync.error ? "warn" : sync.last ? "ok" : "muted", compact: sync.error ? "PR takibi hata veriyor" : null,
-    title: "PR takibi", text: sync.error || (sync.last ? `son kontrol ${ago(sync.last)}` : "henüz kontrol edilmedi") });
+  items.push({ key: "sync", tone: sync.error ? "warn" : sync.last ? "ok" : "muted", compact: sync.error ? t("PR takibi hata veriyor") : null,
+    title: t("PR takibi"), text: t(sync.error || "") || (sync.last ? t("son kontrol {0}", ago(sync.last)) : t("henüz kontrol edilmedi")) });
   // One chip per Claude login: its windows ("5 sa %18 · 7 gün %11"), warn from 80 %, bad while it is over its limit.
   for (const q of s.quota || []) {
     items.push({ key: `q-${q.key}`, tone: q.tone, compact: null, title: q.label,
-      text: [q.blocked ? `Kota doldu · ${clockAt(q.blocked_until)} sıfırlanır` : "", quotaWindows(q) || "henüz kota bilgisi yok"].filter(Boolean).join(" · ") });
+      text: [q.blocked ? t("Kota doldu · {0} sıfırlanır", clockAt(q.blocked_until)) : "", quotaWindows(q) || t("henüz kota bilgisi yok")].filter(Boolean).join(" · ") });
   }
   // The machine's memory: a chip only while pressure is warn/critical or swap is 75 % full (bad while it holds stages).
   const m = s.host;
   if (m) {
-    items.push({ key: "host", tone: m.show ? m.tone : "ok", compact: m.show ? m.text : null, title: "Makine",
-      text: [m.text, m.load1 != null ? `yük ${m.load1.toFixed(1)}` : "", m.busy ? "yeni aşamalar bekliyor" : m.enabled === false ? "bekletme kapalı" : ""].filter(Boolean).join(" · ") });
+    items.push({ key: "host", tone: m.show ? m.tone : "ok", compact: m.show ? t(m.text) : null, title: t("Makine"),
+      text: [t(m.text), m.load1 != null ? t("yük {0}", m.load1.toFixed(1)) : "", m.busy ? t("yeni aşamalar bekliyor") : m.enabled === false ? t("bekletme kapalı") : ""].filter(Boolean).join(" · ") });
   }
   return items;
 }
 
-const quotaWindows = (q) => q.windows.map((w) => `${w.label} %${w.percent}`).join(" · ");
+const quotaWindows = (q) => q.windows.map((w) => `${t(w.label)} ${pctText(w.percent)}`).join(" · ");
 
 // The sidebar's quota: per Claude login, each window's utilization in its colour, and when a reached limit resets.
 function renderQuota(s) {
@@ -441,9 +471,9 @@ function renderQuota(s) {
   $("side-quota-label").hidden = !rows.length;
   box.replaceChildren(...rows.map((q) => h("div", { class: `quota-row ${q.tone}`, title: `${q.label} · ${q.targets.join(", ")}` },
     h("span", { class: "quota-name" }, q.label),
-    h("span", { class: "quota-wins" }, q.blocked ? h("span", { class: "quota-win bad" }, `Kota doldu · ${clockText(q.blocked_until)}`) : "",
-      ...(q.windows.length ? q.windows.map((w) => h("span", { class: `quota-win ${w.tone}`, title: w.resets_at ? `${clockAt(w.resets_at)} sıfırlanır` : "" }, `${w.label} %${w.percent}`))
-        : [h("span", { class: "quota-win muted" }, "henüz bilgi yok")])))));
+    h("span", { class: "quota-wins" }, q.blocked ? h("span", { class: "quota-win bad" }, t("Kota doldu · {0}", clockText(q.blocked_until))) : "",
+      ...(q.windows.length ? q.windows.map((w) => h("span", { class: `quota-win ${w.tone}`, title: w.resets_at ? t("{0} sıfırlanır", clockAt(w.resets_at)) : "" }, `${t(w.label)} ${pctText(w.percent)}`))
+        : [h("span", { class: "quota-win muted" }, t("henüz bilgi yok"))])))));
 }
 
 const isProblem = (i) => i.tone === "bad" || i.tone === "warn";
@@ -460,11 +490,11 @@ function renderHealth(s) {
   const chipOf = (i) => h("div", { class: `hchip ${i.tone}` }, h("span", { class: `dot ${i.tone}` }), h("strong", {}, i.title), h("span", { class: "muted" }, i.text));
   box.replaceChildren(
     h("div", { class: "health-row" },
-      problems.length ? h("span", { class: `health-sum ${tone}` }, h("span", { class: `dot ${tone}` }), `${problems.length} sorun`)
-        : h("span", { class: "health-sum ok" }, h("span", { class: "dot ok" }), "Her şey yolunda"),
+      problems.length ? h("span", { class: `health-sum ${tone}` }, h("span", { class: `dot ${tone}` }), plural(t("{0} sorun"), problems.length))
+        : h("span", { class: "health-sum ok" }, h("span", { class: "dot ok" }), t("Her şey yolunda")),
       ...items.filter((i) => i.compact && !isProblem(i)).map((i) => h("span", { class: "sys-item" }, h("span", { class: `dot ${i.tone}` }), i.compact)),
       h("span", { class: "grow" }),
-      h("button", { class: "small ghost", onclick: () => { store.set(localStorage, "ziggy.system.open", open ? "0" : "1"); renderHealth(snapshot); } }, open ? "Ayrıntıları gizle" : "Ayrıntılar")),
+      h("button", { class: "small ghost", onclick: () => { store.set(localStorage, "ziggy.system.open", open ? "0" : "1"); renderHealth(snapshot); } }, open ? t("Ayrıntıları gizle") : t("Ayrıntılar"))),
     (problems.length || open) ? h("div", { class: "health-chips" }, (open ? items : problems).map(chipOf)) : "");
 }
 
@@ -474,22 +504,28 @@ function renderHealth(s) {
 // with the next step (data-primary), and j/k/Enter walk the cards.
 
 const NEED_TITLE = {
-  question: "Ajanın soruları var", approval: "Plan onayını bekliyor", publish: "Bitti, PR açılmadı",
-  failed: "Koşu başarısız oldu", "job-error": "Komut hata verdi", error: "Ticket state'i okunamıyor",
-  push: "Dal PR'dan sonra değişti", "merged-kept": "PR kapandı ama worktree'de iş kaldı",
-  quiet: "Oturum bir süredir sessiz", stall: "Komut uzun sürüyor", lost: "Koşunun süreci ölmüş", memory: "Hafıza",
-  blocked: "Beklediği ticket takıldı", restack: "Yeniden düzenleme gerekiyor", start: "Başlatılmayı bekliyor", quota: "Kota doldu",
-  lead: "İş önerileri", protected: "Korumalı dosya değişikliği",
+  question: t("Ajanın soruları var"), approval: t("Plan onayını bekliyor"), publish: t("Bitti, PR açılmadı"),
+  failed: t("Koşu başarısız oldu"), "job-error": t("Komut hata verdi"), error: t("Ticket state'i okunamıyor"),
+  push: t("Dal PR'dan sonra değişti"), "merged-kept": t("PR kapandı ama worktree'de iş kaldı"),
+  quiet: t("Oturum bir süredir sessiz"), stall: t("Komut uzun sürüyor"), lost: t("Koşunun süreci ölmüş"), memory: t("Hafıza"),
+  blocked: t("Beklediği ticket takıldı"), restack: t("Yeniden düzenleme gerekiyor"), start: t("Başlatılmayı bekliyor"), quota: t("Kota doldu"),
+  lead: t("İş önerileri"), protected: t("Korumalı dosya değişikliği"),
 };
 const NEED_ICON = { "merged-kept": "folder", quiet: "clock", stall: "clock", lost: "alert", question: "message", approval: "shield", publish: "pr", failed: "alert", "job-error": "terminal", error: "alert", push: "upload", "pr-feedback": "pr", memory: "spec",
   blocked: "clock", restack: "branch", start: "play", quota: "clock", lead: "zap", protected: "shield" };
 const RISK_PILL = { low: "ok", medium: "warn", high: "bad" };
+// Triage at a glance: the plan's risk when it is not low, and a large size. Nothing for a small, low-risk ticket.
+function riskChip(tk) {
+  const parts = [tk.risk && tk.risk !== "low" ? t("risk {0}", tk.risk) : "", tk.size === "large" ? t("büyük") : ""].filter(Boolean);
+  if (!parts.length) return "";
+  return h("span", { class: `pill ${RISK_PILL[tk.risk] || "mute"}`, title: t("plan: risk {0} · boyut {1}", tk.risk || "?", tk.size || "?") }, parts.join(" · "));
+}
 const BOARD_GROUPS = [
-  ["waiting_on_you", "Seni bekliyor", "sorular, onaylar, hatalar, PR yorumları"],
-  ["ready_for_review", "Review'a hazır", "PR'ı açılmamış biten dallar"],
-  ["working", "Çalışıyor", "şu an koşan ajanlar"],
-  ["waiting_on_others", "Sırada", "başka ticket'ı bekleyenler, dilimlere bölünenler"],
-  ["landing", "Teslimde", "açık PR'lar"],
+  ["waiting_on_you", t("Seni bekliyor"), t("sorular, onaylar, hatalar, PR yorumları")],
+  ["ready_for_review", t("Review'a hazır"), t("PR'ı açılmamış biten dallar")],
+  ["working", t("Çalışıyor"), t("şu an koşan ajanlar")],
+  ["waiting_on_others", t("Sırada"), t("başka ticket'ı bekleyenler, dilimlere bölünenler")],
+  ["landing", t("Teslimde"), t("açık PR'lar")],
 ];
 
 // The card's next step: the button Enter presses (or the answer box it focuses).
@@ -510,8 +546,9 @@ function renderBoard(s) {
   if ($("komuta-title").dataset.sig !== sig) {
     $("komuta-title").dataset.sig = sig;
     const where = scope ? `${scope}: ` : "";
-    $("komuta-title").replaceChildren(...(mine ? [where + "Sende ", h("span", { class: "volt-num" }, String(mine)), " iş var"]
-      : [where + (working ? "Ajanlar çalışıyor; sende iş yok" : "Sende bekleyen iş yok")]));
+    const [lead, tail] = t("Sende {0} iş var", "\0").split("\0");
+    $("komuta-title").replaceChildren(...(mine ? [where + lead, h("span", { class: "volt-num" }, String(mine)), tail]
+      : [where + (working ? t("Ajanlar çalışıyor; sende iş yok") : t("Sende bekleyen iş yok"))]));
   }
   renderSlots(s);
   renderQuota(s);
@@ -521,138 +558,139 @@ function renderBoard(s) {
 
 // The sidebar's run slots: per project, used / max (a used slot is a run under way), and the queue.
 function renderSlots(s) {
-  const live = s.targets.filter((t) => !t.error);
-  const queued = s.tickets.filter((t) => t.running && t.queued_at).length;
-  const sig = JSON.stringify([live.map((t) => [t.name, (t.active || []).length, t.max_active]), queued]);
+  const live = s.targets.filter((tk) => !tk.error);
+  const queued = s.tickets.filter((tk) => tk.running && tk.queued_at).length;
+  const sig = JSON.stringify([live.map((tk) => [tk.name, (tk.active || []).length, tk.max_active]), queued]);
   const box = $("side-slots");
   if (box.dataset.sig === sig) return;
   box.dataset.sig = sig;
-  box.replaceChildren(...live.map((t) => {
-    const used = (t.active || []).length;
-    return h("div", { class: "slot-row" + (used ? " busy" : "") }, h("span", { class: "slot-name", title: t.name }, t.name), h("span", { class: "slot-n" }, `${used}/${t.max_active}`));
-  }), queued ? h("div", { class: "slot-row queued" }, h("span", {}, "kuyrukta"), h("span", { class: "slot-n" }, String(queued))) : "");
+  box.replaceChildren(...live.map((tk) => {
+    const used = (tk.active || []).length;
+    return h("div", { class: "slot-row" + (used ? " busy" : "") }, h("span", { class: "slot-name", title: tk.name }, tk.name), h("span", { class: "slot-n" }, `${used}/${tk.max_active}`));
+  }), queued ? h("div", { class: "slot-row queued" }, h("span", {}, t("kuyrukta")), h("span", { class: "slot-n" }, String(queued))) : "");
 }
 
 function boardInto(box, s) {
   const groups = BOARD_GROUPS.map(([key, title, hint]) => ({ key, title, hint,
     items: ((s.board || {})[key] || []).filter((e) => inHome(e.target)).map((e) => ({ e, t: rowOf(e.target, e.id) })).filter((x) => x.t) }));
   // Re-render only on change, and never under a cursor: an answer may be half typed.
-  const sig = JSON.stringify([s.targets.length > 1, homeTarget(), groups.map((g) => [g.key, g.items.map(({ e, t }) => [e, t.status, t.running, t.resumable, t.needs_you,
-    t.stage, t.phase, t.model, t.visit, t.activity, t.last_text, t.cost_usd, t.queued_at, t.retry_at, t.stages, t.pr, t.pr_state, t.drafts, t.dismissed, t.review, t.run_started_at,
-    t.waiting_for, t.children, t.restack, t.split_offer, t.quota, t.mode, t.recheckable])])]);
+  const sig = JSON.stringify([s.targets.length > 1, homeTarget(), groups.map((g) => [g.key, g.items.map(({ e, t: tk }) => [e, tk.status, tk.running, tk.resumable, tk.needs_you,
+    tk.stage, tk.phase, tk.model, tk.visit, tk.activity, tk.last_text, tk.cost_usd, tk.queued_at, tk.retry_at, tk.stages, tk.pr, tk.pr_state, tk.drafts, tk.dismissed, tk.review, tk.run_started_at,
+    tk.waiting_for, tk.children, tk.restack, tk.split_offer, tk.quota, tk.mode, tk.recheckable, tk.risk, tk.size])])]);
   if (sig === box.dataset.sig || (box.contains(document.activeElement) && document.activeElement.tagName === "TEXTAREA")) return;
   box.dataset.sig = sig;
   const focused = box.contains(document.activeElement) ? document.activeElement.closest("[data-board-card]")?.dataset.key : null;
   if (!groups.some((g) => g.items.length)) {
-    const free = s.targets.filter((t) => !t.error && inHome(t.name)).reduce((n, t) => n + t.max_active - (t.active || []).length, 0);
+    const free = s.targets.filter((tk) => !tk.error && inHome(tk.name)).reduce((n, tk) => n + tk.max_active - (tk.active || []).length, 0);
     box.replaceChildren(h("div", { class: "idle" }, icon("check"),
-      h("span", { class: "muted" }, `${homeTarget() ? `${homeTarget()} projesinde s` : "S"}eni bekleyen bir şey yok, çalışan ajan da yok. ${free} slot boş: yukarıdaki komut çubuğundan bir iş ver ya da listeden başlat.`)));
+      h("span", { class: "muted" }, homeTarget() ? t("{0} projesinde seni bekleyen bir şey yok, çalışan ajan da yok. {1} slot boş: yukarıdaki komut çubuğundan bir iş ver ya da listeden başlat.", homeTarget(), free)
+        : t("Seni bekleyen bir şey yok, çalışan ajan da yok. {0} slot boş: yukarıdaki komut çubuğundan bir iş ver ya da listeden başlat.", free))));
     placeNext(box);
     return;
   }
   // "Seni bekliyor" needs no heading: the page title counts it. Its first card is the hero (the next move).
   box.replaceChildren(...groups.filter((g) => g.items.length).map((g) => h("section", { class: `board-group ${g.key}` },
-    g.key === "waiting_on_you" ? "" : h("h2", { class: "board-group-h" }, g.key === "working" ? h("span", { class: "dot live" }) : "", g.key === "working" ? "Canlı" : g.title,
+    g.key === "waiting_on_you" ? "" : h("h2", { class: "board-group-h" }, g.key === "working" ? h("span", { class: "dot live" }) : "", g.key === "working" ? t("Canlı") : g.title,
       h("span", { class: "group-n" }, String(g.items.length)), h("span", { class: "muted small" }, g.hint)),
     h("div", { class: g.key === "waiting_on_you" ? "att-grid" : g.key === "working" ? "lane-grid" : "live-grid" },
-      g.items.map(({ e, t }, i) => boardCard(g.key, e, t, s, i))))));
+      g.items.map(({ e, t: tk }, i) => boardCard(g.key, e, tk, s, i))))));
   placeNext(box);
   if (focused) box.querySelector(`[data-board-card][data-key="${CSS.escape(focused)}"] .live-title`)?.focus();
 }
 
-function boardCard(group, e, t, s, index) {
-  const card = group === "waiting_on_you" && t.needs_you ? needCard(t)
-    : group === "working" ? liveCard(t, s)
-    : group === "ready_for_review" ? reviewCard(t)
-    : group === "waiting_on_others" ? (t.status === "split" ? splitCard(t) : t.status === "quota" ? quotaCard(t) : t.status === "host" ? hostCard(t) : waitingCard(t))
-    : t.status === "split" ? splitCard(t) : landingCard(t);
+function boardCard(group, e, tk, s, index) {
+  const card = group === "waiting_on_you" && tk.needs_you ? needCard(tk)
+    : group === "working" ? liveCard(tk, s)
+    : group === "ready_for_review" ? reviewCard(tk)
+    : group === "waiting_on_others" ? (tk.status === "split" ? splitCard(tk) : tk.status === "quota" ? quotaCard(tk) : tk.status === "host" ? hostCard(tk) : tk.status === "budget" ? budgetCard(tk) : waitingCard(tk))
+    : tk.status === "split" ? splitCard(tk) : landingCard(tk);
   card.setAttribute("data-board-card", "");
-  card.dataset.key = `${t.target}/${t.id}`;
+  card.dataset.key = `${tk.target}/${tk.id}`;
   if (e.unread) card.classList.add("unread");
   if (group === "waiting_on_you" && index === 0) card.classList.add("hero");
   return card;
 }
 
 // The card's title: the j/k target, which opens the drawer.
-function cardTitle(t) {
-  return h("button", { class: "link-btn live-title", title: t.title, onclick: () => openDrawer(t) }, t.title);
+function cardTitle(tk) {
+  return h("button", { class: "link-btn live-title", title: tk.title, onclick: () => openDrawer(tk) }, tk.title);
 }
 
-function cardHead(t, extra) {
+function cardHead(tk, extra) {
   return h("div", { class: "run-head" },
-    t.needs_you && !t.needs_you.seen_at ? h("span", { class: "dot unread-dot", title: "okunmadı" }) : "",
-    h("span", { class: "id" }, t.id), typeTag(t), bmadTag(t), controlledTag(t),
-    snapshot?.targets.length > 1 ? h("span", { class: "muted small" }, t.target) : "",
+    tk.needs_you && !tk.needs_you.seen_at ? h("span", { class: "dot unread-dot", title: t("okunmadı") }) : "",
+    h("span", { class: "id" }, tk.id), typeTag(tk), bmadTag(tk), controlledTag(tk), riskChip(tk),
+    snapshot?.targets.length > 1 ? h("span", { class: "muted small" }, tk.target) : "",
     h("span", { class: "grow" }), extra || "");
 }
 
-function needCard(t) {
-  const n = t.needs_you;
+function needCard(tk) {
+  const n = tk.needs_you;
   const head = h("div", { class: "need-head" },
     h("div", { class: "need-icon" }, icon(NEED_ICON[n.kind] || "bell")),
     h("div", { class: "grow" },
-      h("div", { class: "need-kind" }, !n.seen_at ? h("span", { class: "dot unread-dot", title: "okunmadı" }) : "", n.kind === "stall" ? n.title : NEED_TITLE[n.kind] || n.title,
-        n.kind === "quiet" && n.minutes ? ` · ${n.minutes} dk` : ""),
-      h("div", { class: "need-title" }, h("span", { class: "id" }, t.id), " ", cardTitle(t)),
-      h("div", { class: "muted small" }, t.target, t.stage ? ` · ${t.stage}` : "", n.created_at ? ` · ${ago(n.created_at)}` : "")));
+      h("div", { class: "need-kind" }, !n.seen_at ? h("span", { class: "dot unread-dot", title: t("okunmadı") }) : "", n.kind === "stall" ? t(n.title) : NEED_TITLE[n.kind] || t(n.title),
+        n.kind === "quiet" && n.minutes ? t(" · {0} dk", n.minutes) : ""),
+      h("div", { class: "need-title" }, h("span", { class: "id" }, tk.id), " ", cardTitle(tk), n.kind === "approval" ? "" : riskChip(tk)),  // the gate card shows its own
+      h("div", { class: "muted small" }, tk.target, tk.stage ? ` · ${tk.stage}` : "", n.created_at ? ` · ${ago(n.created_at)}` : "")));
   const body = [head];
   const controls = [];
   if (n.kind === "question" && n.round) {
-    const form = answerForm(t, n.round);
+    const form = answerForm(tk, n.round);
     const first = form.querySelector("textarea");
     if (first) primary(first);
     body.push(form);
   } else if (n.kind === "approval") {
-    body.push(approvalBox(t, n.gate || t.gate || {}));
+    body.push(approvalBox(tk, n.gate || tk.gate || {}));
   } else if (n.kind === "protected" && n.patch) {
     body.push(protectedBox(n.patch));
-    controls.push(...protectedButtons(t, n.patch));
+    controls.push(...protectedButtons(tk, n.patch));
   } else {
-    if (n.details) body.push(h("pre", { class: "need-details" }, n.details));
-    if (["failed", "lost"].includes(n.kind) && !t.legacy) {
-      if (n.kind === "lost") body.push(h("div", { class: "muted small" }, "Süreç sonuç yazmadan bitmiş (öldürülmüş ya da çökmüş)."));
-      if (t.resumable) controls.push(primary(h("button", { class: "primary", onclick: () => act(t, "resume") }, icon("play"), "Kaldığı yerden devam")));
+    if (n.details) body.push(h("pre", { class: "need-details" }, tLines(n.details)));
+    if (["failed", "lost"].includes(n.kind) && !tk.legacy) {
+      if (n.kind === "lost") body.push(h("div", { class: "muted small" }, t("Süreç sonuç yazmadan bitmiş (öldürülmüş ya da çökmüş).")));
+      if (tk.resumable) controls.push(primary(h("button", { class: "primary", onclick: () => act(tk, "resume") }, icon("play"), t("Kaldığı yerden devam"))));
       // The agent's work passed as READY and only an engine check failed (e.g. its environment, fixed since): the
       // checks alone run again, no session and no cost; a pass continues the pipeline.
-      const recheck = t.recheckable && !t.resumable ? h("button", { class: "primary", title: "Ajan koşmaz; motor check'leri dalın şu anki hali üzerinde yeniden koşar, geçerse devam eder",
-        onclick: () => act(t, "recheck") }, icon("check"), "Yalnız check'leri tekrar koştur") : null;
+      const recheck = tk.recheckable && !tk.resumable ? h("button", { class: "primary", title: t("Ajan koşmaz; motor check'leri dalın şu anki hali üzerinde yeniden koşar, geçerse devam eder"),
+        onclick: () => act(tk, "recheck") }, icon("check"), t("Yalnız check'leri tekrar koştur")) : null;
       if (recheck) controls.push(primary(recheck));
-      const again = h("button", { class: t.resumable || recheck ? "" : "primary", onclick: () => act(t, "run") }, icon("retry"), "Aşamayı tekrar koştur");
-      controls.push(t.resumable || recheck ? again : primary(again));
-      if (n.kind === "failed") controls.push(h("button", { onclick: () => openDrawer(t, "questions") }, icon("message"), "Yön değiştir"));
+      const again = h("button", { class: tk.resumable || recheck ? "" : "primary", onclick: () => act(tk, "run") }, icon("retry"), t("Aşamayı tekrar koştur"));
+      controls.push(tk.resumable || recheck ? again : primary(again));
+      if (n.kind === "failed") controls.push(h("button", { onclick: () => openDrawer(tk, "questions") }, icon("message"), t("Yön değiştir")));
     } else if (["quiet", "stall"].includes(n.kind)) {
-      body.push(h("div", { class: "muted small" }, n.kind === "stall" ? "Ziggy komutu durdurmaz. Makine yavaşsa beklemek yeter; takıldıysa ajana yön ver ya da durdur."
-        : "Uzun bir test koşusu da sessiz görünür; son satırlara bak. Takıldıysa ajana yön ver ya da durdur."));
-      controls.push(primary(h("button", { class: "primary", onclick: () => nudgeDialog(t) }, icon("message"), "Yönlendir")));
-      controls.push(h("button", { class: "danger", onclick: () => act(t, "stop") }, icon("stop"), "Durdur"));
+      body.push(h("div", { class: "muted small" }, n.kind === "stall" ? t("Ziggy komutu durdurmaz. Makine yavaşsa beklemek yeter; takıldıysa ajana yön ver ya da durdur.")
+        : t("Uzun bir test koşusu da sessiz görünür; son satırlara bak. Takıldıysa ajana yön ver ya da durdur.")));
+      controls.push(primary(h("button", { class: "primary", onclick: () => nudgeDialog(tk) }, icon("message"), t("Yönlendir"))));
+      controls.push(h("button", { class: "danger", onclick: () => act(tk, "stop") }, icon("stop"), t("Durdur")));
     } else if (n.kind === "pr-feedback") {
       // The title counts them ("PR'da 2 yeni yorum", "PR'da CI kırmızı"); the review page lists them to pick.
-      controls.push(primary(h("a", { class: "button primary", href: ReviewPage.hash(t.target, t.id, null, null, "github") }, icon("diff"), "Geri bildirime bak")));
-      if (t.pr) controls.push(h("a", { class: "button", href: t.pr, target: "_blank", rel: "noopener noreferrer" }, icon("pr"), "PR'ı aç", icon("external")));
+      controls.push(primary(h("a", { class: "button primary", href: ReviewPage.hash(tk.target, tk.id, null, null, "github") }, icon("diff"), t("Geri bildirime bak"))));
+      if (tk.pr) controls.push(h("a", { class: "button", href: tk.pr, target: "_blank", rel: "noopener noreferrer" }, icon("pr"), t("PR'ı aç"), icon("external")));
     } else if (n.kind === "blocked") {
       for (const d of n.waiting_for || []) {
-        const dep = rowOf(t.target, d.id);
-        if (dep) controls.push(h("button", { class: controls.length ? "" : "primary", onclick: () => openDrawer(dep) }, icon("ticket"), `${d.id} aç`));
+        const dep = rowOf(tk.target, d.id);
+        if (dep) controls.push(h("button", { class: controls.length ? "" : "primary", onclick: () => openDrawer(dep) }, icon("ticket"), t("{0} aç", d.id)));
       }
       if (controls.length) primary(controls[0]);
     } else if (n.kind === "start") {
       // A controlled project's dependant: its dependencies are done, and it starts only when you say so.
-      controls.push(primary(h("button", { class: "primary", onclick: () => act(t, "run") }, icon("play"), "Başlat")));
+      controls.push(primary(h("button", { class: "primary", onclick: () => act(tk, "run") }, icon("play"), t("Başlat"))));
     } else if (n.kind === "restack") {
-      const r = t.restack || n.restack || {};
+      const r = tk.restack || n.restack || {};
       if (r.result?.ok && r.result.commits?.length) {
-        body.push(h("div", { class: "muted small" }, `Yeniden düzenlendi (${(r.result.from || "").slice(0, 7)} → ${(r.result.to || "").slice(0, 7)}); PR hâlâ eski commit'leri gösteriyor:`),
+        body.push(h("div", { class: "muted small" }, t("Yeniden düzenlendi ({0} → {1}); PR hâlâ eski commit'leri gösteriyor:", (r.result.from || "").slice(0, 7), (r.result.to || "").slice(0, 7))),
           h("pre", { class: "need-details" }, r.result.commits.join("\n")));
       }
       controls.push(primary(r.rebased
-        ? h("button", { class: "primary", onclick: () => act(t, "restack_push") }, icon("upload"), "Push et (force-with-lease)")
-        : h("button", { class: "primary", onclick: () => act(t, "restack") }, icon("retry"), "Yeniden düzenle")));
-      if (r.rebased) controls.push(h("a", { class: "button", href: ReviewPage.hash(t.target, t.id) }, icon("diff"), "Değişiklikler"));
+        ? h("button", { class: "primary", onclick: () => act(tk, "restack_push") }, icon("upload"), t("Push et (force-with-lease)"))
+        : h("button", { class: "primary", onclick: () => act(tk, "restack") }, icon("retry"), t("Yeniden düzenle"))));
+      if (r.rebased) controls.push(h("a", { class: "button", href: ReviewPage.hash(tk.target, tk.id) }, icon("diff"), t("Değişiklikler")));
     }
   }
-  const details = h("button", { class: "ghost", onclick: () => openDrawer(t) }, icon("activity"), "Ayrıntı");
+  const details = h("button", { class: "ghost", onclick: () => openDrawer(tk) }, icon("activity"), t("Ayrıntı"));
   controls.push(controls.length || ["question", "approval"].includes(n.kind) ? details : primary(details));
-  if (n.dismissable) controls.push(dismissButton(t, n, ""));
+  if (n.dismissable) controls.push(dismissButton(tk, n, ""));
   return h("div", { class: `need ${n.kind} sev-${n.severity}` + (["question", "approval", "protected"].includes(n.kind) ? " wide" : "") }, body, h("div", { class: "row" }, controls));
 }
 
@@ -666,9 +704,9 @@ function protectedBox(p) {
   });
   return h("div", { class: "protected-box" },
     p.summary ? h("div", { class: "small" }, p.summary) : "",
-    h("div", { class: "muted small" }, `Ajanlar bu dosyalara yazamaz; ${p.stage || "aşama"} değişikliği yama olarak bıraktı (#${p.n}). `
-      + "Uygularsan dala commit olarak eklenir." + (p.replaces?.length ? ` Bu yama ${replacesText(p)}.` : "")),
-    h("pre", { class: "patch-diff", "aria-label": `Yama #${p.n}` }, lines));
+    h("div", { class: "muted small" }, t("Ajanlar bu dosyalara yazamaz; {0} değişikliği yama olarak bıraktı (#{1}). ", p.stage || t("aşama"), p.n)
+      + t("Uygularsan dala commit olarak eklenir.") + (p.replaces?.length ? t(" Bu yama {0}.", replacesText(p)) : "")),
+    h("pre", { class: "patch-diff", "aria-label": t("Yama #{0}", p.n) }, lines));
 }
 
 // "önceki #1'in yerini alır": the applied patches of the same files this one was prepared without (protected.replaces).
@@ -676,31 +714,31 @@ function protectedBox(p) {
 function replacesText(p) {
   const ns = p.replaces || [];
   const last = ns[ns.length - 1];
-  const ones = ["", "'in", "'nin", "'ün", "'ün", "'in", "'nın", "'nin", "'in", "'un"];
-  const tens = ["", "'un", "'nin", "'un", "'ın", "'nin", "'ın", "'in", "'in", "'ın"];
-  const suffix = last % 10 ? ones[last % 10] : Math.floor(last / 10) % 10 ? tens[Math.floor(last / 10) % 10]
-    : Math.floor(last / 100) % 10 ? "'ün" : "'in";
-  const list = ns.length > 1 ? `${ns.slice(0, -1).map((n) => `#${n}`).join(", ")} ve #${last}` : `#${last}`;
-  return `önceki ${list}${suffix} yerini alır`;
+  const ones = ["", "'in", "'nin", "'ün", "'ün", "'in", "'nın", "'nin", "'in", "'un"];  // i18n-ok: Turkish grammar, used only in Turkish
+  const tens = ["", "'un", "'nin", "'un", "'ın", "'nin", "'ın", "'in", "'in", "'ın"];  // i18n-ok: Turkish grammar
+  const suffix = EN ? "" : last % 10 ? ones[last % 10] : Math.floor(last / 10) % 10 ? tens[Math.floor(last / 10) % 10]
+    : Math.floor(last / 100) % 10 ? "'ün" : "'in";  // i18n-ok: Turkish grammar
+  const list = ns.length > 1 ? t("{0} ve #{1}", ns.slice(0, -1).map((n) => `#${n}`).join(", "), last) : `#${last}`;
+  return t("önceki {0}{1} yerini alır", list, suffix);
 }
 
-function protectedButtons(t, p) {
+function protectedButtons(tk, p) {
   const reject = async () => {
-    const r = await askBox({ title: `${t.id}: korumalı dosya değişikliği reddedilsin mi?`, text: `${p.files.join(", ")} değişmeden kalır. Neden (isteğe bağlı):`,
-      placeholder: "ör. AGENTS.md'yi ben güncelleyeceğim", max: 1000, yes: "Reddet", optional: true });
-    if (r) act(t, "protected_reject", r.text, { n: p.n });
+    const r = await askBox({ title: t("{0}: korumalı dosya değişikliği reddedilsin mi?", tk.id), text: t("{0} değişmeden kalır. Neden (isteğe bağlı):", p.files.join(", ")),
+      placeholder: t("ör. AGENTS.md'yi ben güncelleyeceğim"), max: 1000, yes: t("Reddet"), optional: true });
+    if (r) act(tk, "protected_reject", r.text, { n: p.n });
   };
-  return [primary(h("button", { class: "primary", onclick: () => act(t, "protected_apply", "", { n: p.n }) }, icon("check"), "Uygula")),
-    h("button", { class: "danger", onclick: reject }, icon("x"), "Reddet")];
+  return [primary(h("button", { class: "primary", onclick: () => act(tk, "protected_apply", "", { n: p.n }) }, icon("check"), t("Uygula"))),
+    h("button", { class: "danger", onclick: reject }, icon("x"), t("Reddet"))];
 }
 
 // The last few activity lines per running ticket, kept across polls (the snapshot carries only the latest).
 const laneLog = new Map();
 
-function laneLines(t) {
-  const key = `${t.target}/${t.id}`;
+function laneLines(tk) {
+  const key = `${tk.target}/${tk.id}`;
   const lines = laneLog.get(key) || [];
-  const line = t.activity ? shortLine(t.activity, t.worktree) : "";
+  const line = tk.activity ? shortLine(tk.activity, tk.worktree) : "";
   if (line && lines[lines.length - 1] !== line) {
     lines.push(line);
     if (lines.length > 4) lines.shift();
@@ -710,136 +748,149 @@ function laneLines(t) {
 }
 
 // A running ticket as a live lane: its stages, the clock, and the agent's last moves as they happen.
-function liveCard(t, s) {
-  const quiet = ["quiet", "stall"].includes(t.needs_you?.kind);
-  const started = t.run_started_at || t.phase_started_at || t.queued_at;
-  const watch = primary(h("button", { class: "small", onclick: () => openDrawer(t, t.round ? "questions" : "activity") }, icon(t.round ? "message" : "activity"), t.round ? "Cevapla" : "İzle"));
-  const lines = laneLines(t);
-  return h("div", { class: "lane" + (quiet ? " quiet" : t.queued_at ? " queued" : "") },
+function liveCard(tk, s) {
+  const quiet = ["quiet", "stall"].includes(tk.needs_you?.kind);
+  const started = tk.run_started_at || tk.phase_started_at || tk.queued_at;
+  const watch = primary(h("button", { class: "small", onclick: () => openDrawer(tk, tk.round ? "questions" : "activity") }, icon(tk.round ? "message" : "activity"), tk.round ? t("Cevapla") : t("İzle")));
+  const lines = laneLines(tk);
+  return h("div", { class: "lane" + (quiet ? " quiet" : tk.queued_at ? " queued" : "") },
     h("div", { class: "lane-top" },
-      cardHead(t, [t.queued_at ? h("span", { class: "pill mute" }, "kuyrukta") : "", h("span", { class: `dot ${t.queued_at ? "" : quiet ? "warn" : "live"}` }),
+      cardHead(tk, [tk.queued_at ? h("span", { class: "pill mute" }, t("kuyrukta")) : "", h("span", { class: `dot ${tk.queued_at ? "" : quiet ? "warn" : "live"}` }),
         started ? since(started, "lane-clock nowrap") : ""]),
-      cardTitle(t),
-      pipelineBar(t, false),
-      h("div", { class: "run-phase" }, runLabel(t))),
+      cardTitle(tk),
+      pipelineBar(tk, false),
+      h("div", { class: "run-phase" }, runLabel(tk))),
     h("div", { class: "lane-log" },
       lines.length ? lines.map((l, i) => h("div", { class: "lane-line" + (i === lines.length - 1 ? " now" : ""), title: l }, l))
-        : h("div", { class: "lane-line muted" }, t.queued_at ? "Projenin bütün koşu slotları dolu; önündekiler bitince kendiliğinden başlar." : "hazırlanıyor…")),
-    t.last_text ? h("div", { class: "live-text", title: t.last_text }, t.last_text) : "",
-    quiet ? h("div", { class: "warn-text small lane-warn" }, t.needs_you.kind === "stall" ? t.needs_you.title : `${t.needs_you.minutes ?? "?"} dakikadır olay yok`) : "",
+        : h("div", { class: "lane-line muted" }, tk.queued_at ? t("Projenin bütün koşu slotları dolu; önündekiler bitince kendiliğinden başlar.") : t("hazırlanıyor…"))),
+    tk.last_text ? h("div", { class: "live-text", title: tk.last_text }, tk.last_text) : "",
+    quiet ? h("div", { class: "warn-text small lane-warn" }, tk.needs_you.kind === "stall" ? tk.needs_you.title : t("{0} dakikadır olay yok", tk.needs_you.minutes ?? "?")) : "",
     h("div", { class: "lane-foot" },
-      h("span", { class: "lane-cost" }, t.cost_usd ? money(t.cost_usd) : "henüz maliyet yok"),
+      h("span", { class: "lane-cost" }, tk.cost_usd ? money(tk.cost_usd) : t("henüz maliyet yok")),
       h("span", { class: "grow" }),
       watch,
-      ...actionButtons(t, true)));
+      ...actionButtons(tk, true)));
 }
 
-function reviewCard(t) {
-  const n = t.needs_you || {};
+function reviewCard(tk) {
+  const n = tk.needs_you || {};
   const controls = [];
-  if (n.kind === "push" && !t.pull?.fork) {
-    controls.push(primary(h("button", { class: "small primary", onclick: () => act(t, "publish") }, icon("upload"), t.pull ? "PR'a gönder" : "PR'ı güncelle")));
-    controls.push(h("a", { class: "button small", href: ReviewPage.hash(t.target, t.id) }, icon("diff"), "Değişiklikler"));
+  if (n.kind === "push" && !tk.pull?.fork) {
+    controls.push(primary(h("button", { class: "small primary", onclick: () => act(tk, "publish") }, icon("upload"), tk.pull ? t("PR'a gönder") : t("PR'ı güncelle"))));
+    controls.push(h("a", { class: "button small", href: ReviewPage.hash(tk.target, tk.id) }, icon("diff"), t("Değişiklikler")));
   } else {
-    controls.push(primary(h("a", { class: "button small primary", href: ReviewPage.hash(t.target, t.id) }, icon("diff"), "Değişiklikleri incele")));
-    if (t.status === "done" && !t.pr) controls.push(h("button", { class: "small", onclick: () => act(t, "publish") }, icon("pr"), "Draft PR aç"));
+    controls.push(primary(h("a", { class: "button small primary", href: ReviewPage.hash(tk.target, tk.id) }, icon("diff"), t("Değişiklikleri incele"))));
+    if (tk.status === "done" && !tk.pr) controls.push(h("button", { class: "small", onclick: () => act(tk, "publish") }, icon("pr"), t("Draft PR aç")));
   }
-  controls.push(h("button", { class: "small ghost", onclick: () => openDrawer(t) }, "Ayrıntı"));
-  if (n.dismissable) controls.push(dismissButton(t, n, "small"));
+  controls.push(h("button", { class: "small ghost", onclick: () => openDrawer(tk) }, t("Ayrıntı")));
+  if (n.dismissable) controls.push(dismissButton(tk, n, "small"));
   return h("div", { class: `live-card review-ready ${n.kind || ""}`, title: n.details || "" },
-    cardHead(t, h("span", { class: "muted small nowrap" }, ago(n.created_at || t.updated_at))),
-    cardTitle(t),
-    h("div", { class: "muted small row tight" }, NEED_TITLE[n.kind] || "Bitti", t.drafts ? h("span", { class: "pill info" }, `${t.drafts} taslak yorum`) : "",
-      t.dismissed ? h("a", { class: "pill-btn warn", href: ReviewPage.hash(t.target, t.id, null, null, "dismissed"),
-        title: "AI review'un \"boşver\" dediği bulgular; aç, istediğini düzelttir" }, `Review ${t.dismissed} bulguyu eledi`) : "",
-      reviewPill(t)),
+    cardHead(tk, h("span", { class: "muted small nowrap" }, ago(n.created_at || tk.updated_at))),
+    cardTitle(tk),
+    h("div", { class: "muted small row tight" }, NEED_TITLE[n.kind] || t("Bitti"), tk.drafts ? h("span", { class: "pill info" }, plural(t("{0} taslak yorum"), tk.drafts)) : "",
+      tk.dismissed ? h("a", { class: "pill-btn warn", href: ReviewPage.hash(tk.target, tk.id, null, null, "dismissed"),
+        title: t("AI review'un \"boşver\" dediği bulgular; aç, istediğini düzelttir") }, plural(t("Review {0} bulguyu eledi"), tk.dismissed)) : "",
+      reviewPill(tk)),
     h("div", { class: "row tight wrap" }, controls));
 }
 
-function landingCard(t) {
-  const open = t.pr ? primary(h("a", { class: "button small primary", href: t.pr, target: "_blank", rel: "noopener noreferrer" }, icon("pr"), "PR'ı aç", icon("external")))
-    : primary(h("button", { class: "small", onclick: () => openDrawer(t) }, "Ayrıntı"));
+function landingCard(tk) {
+  const open = tk.pr ? primary(h("a", { class: "button small primary", href: tk.pr, target: "_blank", rel: "noopener noreferrer" }, icon("pr"), t("PR'ı aç"), icon("external")))
+    : primary(h("button", { class: "small", onclick: () => openDrawer(tk) }, t("Ayrıntı")));
   return h("div", { class: "live-card landing" },
-    cardHead(t, h("span", { class: "muted small nowrap" }, ago(t.updated_at))),
-    cardTitle(t),
-    h("div", { class: "row tight wrap" }, t.pr ? h("span", { class: `pr-pill ${(t.pr_state || "open").toLowerCase()}` }, icon("pr"), "#" + t.pr.split("/").pop()) : "", reviewPill(t)),
-    h("div", { class: "row tight wrap" }, open, h("button", { class: "small ghost", onclick: () => openDrawer(t) }, "Ayrıntı")));
+    cardHead(tk, h("span", { class: "muted small nowrap" }, ago(tk.updated_at))),
+    cardTitle(tk),
+    h("div", { class: "row tight wrap" }, tk.pr ? h("span", { class: `pr-pill ${(tk.pr_state || "open").toLowerCase()}` }, icon("pr"), "#" + tk.pr.split("/").pop()) : "", reviewPill(tk)),
+    h("div", { class: "row tight wrap" }, open, h("button", { class: "small ghost", onclick: () => openDrawer(tk) }, t("Ayrıntı"))));
 }
 
 // A ticket that waits for other tickets: what it waits for, each with its status; it starts on its own (a controlled
 // project asks first).
-function waitingCard(t) {
+function waitingCard(tk) {
   return h("div", { class: "live-card queued waiting" },
-    cardHead(t, [h("span", { class: "pill warn" }, "bekliyor"), h("span", { class: "muted small nowrap" }, ago(t.updated_at))]),
-    cardTitle(t),
-    h("div", { class: "run-phase" }, waitText(t)),
-    h("div", { class: "row tight wrap" }, (t.waiting_for || []).map((d) => {
-      const dep = rowOf(t.target, d.id);
+    cardHead(tk, [h("span", { class: "pill warn" }, t("bekliyor")), h("span", { class: "muted small nowrap" }, ago(tk.updated_at))]),
+    cardTitle(tk),
+    h("div", { class: "run-phase" }, waitText(tk)),
+    h("div", { class: "row tight wrap" }, (tk.waiting_for || []).map((d) => {
+      const dep = rowOf(tk.target, d.id);
       return h("button", { class: "pill-btn " + (d.state === "blocked" ? "bad" : ""), title: d.title || "", onclick: () => dep && openDrawer(dep) },
-        d.id, " · ", STATUS_TR[d.status] || d.status || "yok");
+        d.id, " · ", STATUS_TR[d.status] || d.status || t("yok"));
     })),
-    h("div", { class: "muted small" }, t.mode === "controlled"
-      ? `${t.slice ? `Dilim ${t.slice}: bir alttaki dilim` : "Beklediği ticket'lar"} bitince başlatmak için sorulur (kontrollü proje).`
-      : t.slice ? `Dilim ${t.slice}: bir alttaki dilim bitince kendiliğinden başlar.` : "Beklediği ticket'lar bitince kendiliğinden başlar."),
-    h("div", { class: "row tight wrap" }, primary(h("button", { class: "small ghost", onclick: () => openDrawer(t) }, "Ayrıntı"))));
+    h("div", { class: "muted small" }, tk.mode === "controlled"
+      ? t("{0} bitince başlatmak için sorulur (kontrollü proje).", tk.slice ? t("Dilim {0}: bir alttaki dilim", tk.slice) : t("Beklediği ticket'lar"))
+      : tk.slice ? t("Dilim {0}: bir alttaki dilim bitince kendiliğinden başlar.", tk.slice) : t("Beklediği ticket'lar bitince kendiliğinden başlar.")),
+    h("div", { class: "row tight wrap" }, primary(h("button", { class: "small ghost", onclick: () => openDrawer(tk) }, t("Ayrıntı")))));
 }
 
 // A ticket held for its Claude login's usage limit: when it goes on by itself; "Şimdi başlat" starts it anyway.
-function quotaCard(t) {
+function quotaCard(tk) {
   return h("div", { class: "live-card queued waiting" },
-    cardHead(t, [h("span", { class: "pill warn" }, "kota"), h("span", { class: "muted small nowrap" }, ago(t.updated_at))]),
-    cardTitle(t),
-    pipelineBar(t, false),
-    h("div", { class: "run-phase" }, quotaText(t)),
-    h("div", { class: "muted small" }, quotaDetail(t)),
-    h("div", { class: "row tight wrap" }, primary(h("button", { class: "small ghost", onclick: () => openDrawer(t) }, "Ayrıntı")),
-      h("button", { class: "small", onclick: () => act(t, "run", "", { now: true }) }, icon("play"), "Şimdi başlat")));
+    cardHead(tk, [h("span", { class: "pill warn" }, t("kota")), h("span", { class: "muted small nowrap" }, ago(tk.updated_at))]),
+    cardTitle(tk),
+    pipelineBar(tk, false),
+    h("div", { class: "run-phase" }, quotaText(tk)),
+    h("div", { class: "muted small" }, quotaDetail(tk)),
+    h("div", { class: "row tight wrap" }, primary(h("button", { class: "small ghost", onclick: () => openDrawer(tk) }, t("Ayrıntı"))),
+      h("button", { class: "small", onclick: () => act(tk, "run", "", { now: true }) }, icon("play"), t("Şimdi başlat"))));
+}
+
+// A ticket held for its target's daily spending cap (daily_budget_usd): it starts tomorrow; "Şimdi başlat" goes on now.
+function budgetCard(tk) {
+  const b = tk.budget || {};
+  return h("div", { class: "live-card queued waiting" },
+    cardHead(tk, [h("span", { class: "pill warn" }, t("bütçe")), h("span", { class: "muted small nowrap" }, ago(tk.updated_at))]),
+    cardTitle(tk),
+    pipelineBar(tk, false),
+    h("div", { class: "run-phase" }, t("Günlük bütçe doldu · {0} devam eder", clockAt(b.resume_at))),
+    h("div", { class: "muted small" }, t("{0} bugün {1} harcadı; sınır {2} (daily_budget_usd).", tk.target, money(b.spent), money(b.cap))),
+    h("div", { class: "row tight wrap" }, primary(h("button", { class: "small ghost", onclick: () => openDrawer(tk) }, t("Ayrıntı"))),
+      h("button", { class: "small", onclick: () => act(tk, "run", "", { now: true }) }, icon("play"), t("Şimdi başlat"))));
 }
 
 // A ticket held while the machine is short of memory: it starts once the machine is calm; "Şimdi başlat" starts it anyway.
-function hostCard(t) {
+function hostCard(tk) {
   return h("div", { class: "live-card queued waiting" },
-    cardHead(t, [h("span", { class: "pill warn" }, "bellek"), h("span", { class: "muted small nowrap" }, ago(t.updated_at))]),
-    cardTitle(t),
-    pipelineBar(t, false),
+    cardHead(tk, [h("span", { class: "pill warn" }, t("bellek")), h("span", { class: "muted small nowrap" }, ago(tk.updated_at))]),
+    cardTitle(tk),
+    pipelineBar(tk, false),
     h("div", { class: "run-phase" }, HOST_TEXT),
-    h("div", { class: "muted small" }, hostDetail(t)),
-    h("div", { class: "row tight wrap" }, primary(h("button", { class: "small ghost", onclick: () => openDrawer(t) }, "Ayrıntı")),
-      h("button", { class: "small", onclick: () => act(t, "run", "", { now: true }) }, icon("play"), "Şimdi başlat")));
+    h("div", { class: "muted small" }, hostDetail(tk)),
+    h("div", { class: "row tight wrap" }, primary(h("button", { class: "small ghost", onclick: () => openDrawer(tk) }, t("Ayrıntı"))),
+      h("button", { class: "small", onclick: () => act(tk, "run", "", { now: true }) }, icon("play"), t("Şimdi başlat"))));
 }
 
 // A split ticket: a container for its stacked slices, each with its status and PR.
-function splitCard(t) {
-  const kids = t.children || [];
+function splitCard(tk) {
+  const kids = tk.children || [];
   const done = kids.filter((c) => c.status === "done").length;
   return h("div", { class: "live-card split" },
-    cardHead(t, [h("span", { class: "pill info" }, `${kids.length} dilim`), h("span", { class: "muted small nowrap" }, ago(t.updated_at))]),
-    cardTitle(t),
-    h("div", { class: "muted small" }, `Dilimlere bölündü · ${done}/${kids.length} bitti · her dilim bir öncekinin dalına yığılı`),
-    sliceList(t, kids),
-    h("div", { class: "row tight wrap" }, primary(h("button", { class: "small ghost", onclick: () => openDrawer(t) }, "Ayrıntı"))));
+    cardHead(tk, [h("span", { class: "pill info" }, plural(t("{0} dilim"), kids.length)), h("span", { class: "muted small nowrap" }, ago(tk.updated_at))]),
+    cardTitle(tk),
+    h("div", { class: "muted small" }, t("Dilimlere bölündü · {0}/{1} bitti · her dilim bir öncekinin dalına yığılı", done, kids.length)),
+    sliceList(tk, kids),
+    h("div", { class: "row tight wrap" }, primary(h("button", { class: "small ghost", onclick: () => openDrawer(tk) }, t("Ayrıntı")))));
 }
 
 // The slices of a stack, lowest first: slice id, ticket, status (waiting: what for), PR link.
-function sliceList(t, kids) {
+function sliceList(tk, kids) {
   return h("ol", { class: "slice-list" }, kids.map((c) => {
-    const row = rowOf(t.target, c.id);
+    const row = rowOf(tk.target, c.id);
     const status = c.running ? "running" : c.status;
-    return h("li", { class: "slice" + (c.id === t.id ? " current" : "") },
+    return h("li", { class: "slice" + (c.id === tk.id ? " current" : "") },
       h("span", { class: "slice-id" }, c.slice || "?"),
       h("button", { class: "link-btn slice-title", title: c.title || "", onclick: () => row && openDrawer(row) }, h("span", { class: "id" }, c.id), " ", (c.title || "").replace(/^.* — S\d+: /, "")),
       badge(status),
-      c.status === "waiting" && c.waiting_for?.length ? h("span", { class: "muted small" }, `${c.waiting_for.join(", ")} bitince`) : "",
-      c.restack ? h("span", { class: "pill warn" }, "yeniden düzenle") : "",
-      c.pr ? link(c.pr, h("span", { class: `pr-pill ${(c.pr_state || "open").toLowerCase()}` }, icon("pr"), "#" + c.pr.split("/").pop())) : h("span", { class: "muted small" }, "PR yok"));
+      c.status === "waiting" && c.waiting_for?.length ? h("span", { class: "muted small" }, t("{0} bitince", c.waiting_for.join(", "))) : "",
+      c.restack ? h("span", { class: "pill warn" }, t("yeniden düzenle")) : "",
+      c.pr ? link(c.pr, h("span", { class: `pr-pill ${(c.pr_state || "open").toLowerCase()}` }, icon("pr"), "#" + c.pr.split("/").pop())) : h("span", { class: "muted small" }, t("PR yok")));
   }));
 }
 
 // Closes this occurrence only (a new failure or a new run shows again); questions, approvals and
 // quiet sessions need an action, so they have no close.
-function dismissButton(t, n, cls) {
-  return h("button", { class: `${cls} ghost`, title: "Bu kaydı kapat; aynı olay bir daha gösterilmez",
-    onclick: (e) => { e.stopPropagation(); act(t, "dismiss", n.key); } }, icon("x"), "Kapat");
+function dismissButton(tk, n, cls) {
+  return h("button", { class: `${cls} ghost`, title: t("Bu kaydı kapat; aynı olay bir daha gösterilmez"),
+    onclick: (e) => { e.stopPropagation(); act(tk, "dismiss", n.key); } }, icon("x"), t("Kapat"));
 }
 
 // j/k move between board cards, Enter takes the focused card's next step.
@@ -871,7 +922,7 @@ document.addEventListener("keydown", (e) => {
 
 function renderInbox(s) {
   $("inbox-count").textContent = s.unread ? String(s.unread) : "";
-  $("inbox-btn").title = s.unread ? `Gelen kutusu · ${s.unread} okunmamış` : "Gelen kutusu";
+  $("inbox-btn").title = s.unread ? t("Gelen kutusu · {0} okunmamış", s.unread) : t("Gelen kutusu");
   if (!$("inbox-pop").hidden && s.unread !== loadInbox.unread) loadInbox();
 }
 
@@ -889,9 +940,9 @@ async function loadInbox() {
     try { await api("/api/attention/seen", { all: true }); } catch (e) { return toast(e.message, true); }
     await refresh();
     loadInbox();
-  } }, icon("check"), "Tümünü okundu say");
+  } }, icon("check"), t("Tümünü okundu say"));
   pop.replaceChildren(
-    h("div", { class: "row" }, h("strong", { class: "grow" }, "Gelen kutusu"), markAll),
+    h("div", { class: "row" }, h("strong", { class: "grow" }, t("Gelen kutusu")), markAll),
     items.length ? h("ul", { class: "inbox-list" }, items.map((i) => h("li", {},
       h("button", { class: "inbox-item" + (i.seen_at ? "" : " unread"), onclick: () => {
         closeInbox();
@@ -906,10 +957,10 @@ async function loadInbox() {
       } },
         h("span", { class: "dot " + (i.seen_at ? "" : "unread-dot") }),
         // pr-feedback has no fixed kicker (cards show its counted title); the inbox row still names the kind.
-        h("span", { class: "grow" }, h("span", { class: "small muted" }, NEED_TITLE[i.kind] || (i.kind === "pr-feedback" ? "PR geri bildirimi" : i.kind)), h("br"),
-          ["memory", "quota", "lead"].includes(i.kind) ? "" : h("span", { class: "id" }, i.ticket), ["memory", "lead"].includes(i.kind) ? h("span", { class: "id" }, i.target) : "", " ", i.title),
+        h("span", { class: "grow" }, h("span", { class: "small muted" }, NEED_TITLE[i.kind] || (i.kind === "pr-feedback" ? t("PR geri bildirimi") : i.kind)), h("br"),
+          ["memory", "quota", "lead"].includes(i.kind) ? "" : h("span", { class: "id" }, i.ticket), ["memory", "lead"].includes(i.kind) ? h("span", { class: "id" }, i.target) : "", " ", t(i.title)),
         h("span", { class: "muted small nowrap" }, ago(i.created_at))))))
-      : h("p", { class: "muted small" }, "Yeni bir şey yok. Açtığın işler bitene kadar panoda kalır."));
+      : h("p", { class: "muted small" }, t("Yeni bir şey yok. Açtığın işler bitene kadar panoda kalır.")));
 }
 
 function closeInbox() {
@@ -923,14 +974,14 @@ $("inbox-btn").addEventListener("click", (e) => {
   if (!$("inbox-pop").hidden) return closeInbox();
   $("inbox-pop").hidden = false;
   $("inbox-btn").setAttribute("aria-expanded", "true");
-  $("inbox-pop").replaceChildren(h("p", { class: "muted small" }, "yükleniyor…"));
+  $("inbox-pop").replaceChildren(h("p", { class: "muted small" }, t("yükleniyor…")));
   loadInbox();
 });
 document.addEventListener("click", (e) => { if (!$("inbox-pop").hidden && !e.target.closest(".inbox")) closeInbox(); });
 
-function markSeen(t) {
-  if (!t?.needs_you || t.needs_you.seen_at) return;
-  api("/api/attention/seen", { target: t.target, ticket: t.id }).then(() => refresh()).catch(() => { /* the next poll shows it unread again */ });
+function markSeen(tk) {
+  if (!tk?.needs_you || tk.needs_you.seen_at) return;
+  api("/api/attention/seen", { target: tk.target, ticket: tk.id }).then(() => refresh()).catch(() => { /* the next poll shows it unread again */ });
 }
 
 // --- dialogs: nudge, cleanup --------------------------------------------------------------------------
@@ -949,7 +1000,7 @@ function askBox({ title, text, placeholder, max, yes, input = true, check, optio
     $("ask-check-row").style.display = check ? "" : "none";
     $("ask-check").checked = false;
     $("ask-check-label").textContent = check || "";
-    $("ask-yes").textContent = yes || "Gönder";
+    $("ask-yes").textContent = yes || t("Gönder");
     $("ask-modal").hidden = false;
     (input ? ta : $("ask-yes")).focus();
     const done = (v) => { $("ask-modal").hidden = true; $("ask-form").onsubmit = $("ask-no").onclick = null; resolve(v); };
@@ -964,57 +1015,57 @@ function askBox({ title, text, placeholder, max, yes, input = true, check, optio
 
 // Steer the agent without starting over: a running stage is interrupted and resumes its own session
 // with the message; one that has not started gets it in its prompt.
-async function nudgeDialog(t) {
-  const live = t.running && !t.queued_at && !t.retry_at;
-  const stage = t.stage || "sıradaki aşama";
+async function nudgeDialog(tk) {
+  const live = tk.running && !tk.queued_at && !tk.retry_at;
+  const stage = tk.stage || t("sıradaki aşama");
   const r = await askBox({
-    title: "Ajana mesaj gönder: çalışmayı bırakmadan yön verir",
-    text: live ? `${t.id}: ${stage} durdurulur ve kendi oturumunda, bağlamını koruyarak önce mesajını okuyup devam eder. Süren bir araç çağrısı iptal olur.`
-      : `${t.id}: mesajın ${stage} başlayınca prompt'una eklenir.`,
-    placeholder: "Ne farklı yapsın? (en çok 4000 karakter)", max: 4000, yes: live ? "Durdur ve yönlendir" : "Mesajı kaydet",
+    title: t("Ajana mesaj gönder: çalışmayı bırakmadan yön verir"),
+    text: live ? t("{0}: {1} durdurulur ve kendi oturumunda, bağlamını koruyarak önce mesajını okuyup devam eder. Süren bir araç çağrısı iptal olur.", tk.id, stage)
+      : t("{0}: mesajın {1} başlayınca prompt'una eklenir.", tk.id, stage),
+    placeholder: t("Ne farklı yapsın? (en çok 4000 karakter)"), max: 4000, yes: live ? t("Durdur ve yönlendir") : t("Mesajı kaydet"),
   });
-  if (r) act(t, "nudge", r.text);
+  if (r) act(tk, "nudge", r.text);
 }
 
-async function cleanupDialog(t) {
+async function cleanupDialog(tk) {
   const r = await askBox({
-    title: `${t.id}: worktree temizlensin mi?`,
-    text: `Önce teardown komutları çalışır, sonra worktree silinir. Dal (${t.branch}) kalır; yeni bir koşu worktree'yi daldan yeniden kurar.`,
-    input: false, check: "Commit edilmemiş dosyalar olsa da sil (kaybolurlar)", yes: "Temizle",
+    title: t("{0}: worktree temizlensin mi?", tk.id),
+    text: t("Önce teardown komutları çalışır, sonra worktree silinir. Dal ({0}) kalır; yeni bir koşu worktree'yi daldan yeniden kurar.", tk.branch),
+    input: false, check: t("Commit edilmemiş dosyalar olsa da sil (kaybolurlar)"), yes: t("Temizle"),
   });
-  if (r) act(t, "cleanup", r.checked ? "force" : "");
+  if (r) act(tk, "cleanup", r.checked ? "force" : "");
 }
 
 // An intent gap: the stage found the change answers a different intent than the ticket and the plan. The
 // attempt was saved as a patch and the branch reset to the commit before it, unless it was already published.
 const GAP_KEPT = {
-  published: "Dal zaten yayında (PR ya da push): kod olduğu gibi duruyor, geri alınmadı; yalnızca soru açıldı.",
-  "not in history": "Denemeden önceki commit artık dalın geçmişinde değil; dal geri alınmadı.",
-  "nothing built": "Denemeden bu yana commit yok; geri alınacak bir şey yoktu.",
-  stacked: "Üstteki dilim bu dalın üstüne kuruldu: kod olduğu gibi duruyor, geri alınmadı; yalnızca soru açıldı.",
+  published: t("Dal zaten yayında (PR ya da push): kod olduğu gibi duruyor, geri alınmadı; yalnızca soru açıldı."),
+  "not in history": t("Denemeden önceki commit artık dalın geçmişinde değil; dal geri alınmadı."),
+  "nothing built": t("Denemeden bu yana commit yok; geri alınacak bir şey yoktu."),
+  stacked: t("Üstteki dilim bu dalın üstüne kuruldu: kod olduğu gibi duruyor, geri alınmadı; yalnızca soru açıldı."),
 };
-function intentGapBox(t, gap) {
-  const patch = `/api/attempts/${encodeURIComponent(t.target)}/${encodeURIComponent(t.id)}/attempt-${gap.attempt}.patch`;
-  const note = gap.reset ? `Dal ${(gap.reset_to || "").slice(0, 7)} commit'ine geri alındı; deneme (${gap.commits} commit) yamada saklı.`
-    : GAP_KEPT[gap.kept] || "Dal geri alınmadı.";
+function intentGapBox(tk, gap) {
+  const patch = `/api/attempts/${encodeURIComponent(tk.target)}/${encodeURIComponent(tk.id)}/attempt-${gap.attempt}.patch`;
+  const note = gap.reset ? t("Dal {0} commit'ine geri alındı; deneme ({1} commit) yamada saklı.", (gap.reset_to || "").slice(0, 7), gap.commits)
+    : GAP_KEPT[gap.kept] || t("Dal geri alınmadı.");
   return h("div", { class: "intent-gap" },
-    h("div", { class: "need-kind" }, icon("alert"), " Niyet sapması", h("span", { class: "muted" }, ` · ${gap.stage || "?"} buldu`)),
+    h("div", { class: "need-kind" }, icon("alert"), t(" Niyet sapması"), h("span", { class: "muted" }, t(" · {0} buldu", gap.stage || "?"))),
     h("div", { class: "md" }, MD.blocks(gap.summary || "")),
-    gap.evidence ? h("div", { class: "gap-evidence small" }, h("span", { class: "muted" }, "Kanıt: "), gap.evidence) : "",
+    gap.evidence ? h("div", { class: "gap-evidence small" }, h("span", { class: "muted" }, t("Kanıt: ")), gap.evidence) : "",
     h("div", { class: "row small" },
-      h("a", { class: "button small", href: patch, target: "_blank", rel: "noopener" }, icon("diff"), `Deneme ${gap.attempt} yaması`),
-      h("span", { class: `pill ${gap.reset ? "info" : "warn"}` }, gap.reset ? "dal geri alındı" : "kod korundu"),
+      h("a", { class: "button small", href: patch, target: "_blank", rel: "noopener" }, icon("diff"), t("Deneme {0} yaması", gap.attempt)),
+      h("span", { class: `pill ${gap.reset ? "info" : "warn"}` }, gap.reset ? t("dal geri alındı") : t("kod korundu")),
       h("span", { class: "muted grow" }, note)));
 }
 
 // The open question round: each question with its options (a click fills the answer), the
 // recommendation, and an answer box per question. Drafts survive a reload (sessionStorage).
-function answerForm(t, round) {
-  const key = (qid) => `ziggy.answer.${t.target}/${t.id}/${round.n}/${qid}`;
+function answerForm(tk, round) {
+  const key = (qid) => `ziggy.answer.${tk.target}/${tk.id}/${round.n}/${qid}`;
   const boxes = [];
   const items = (round.questions || []).map((q, i) => {
     const qid = q.id || `Q${i + 1}`;
-    const ta = h("textarea", { rows: 2, class: "answer-box", placeholder: q.recommendation ? `Önerilen: ${q.recommendation}` : "Cevabın", "aria-label": `${qid} için cevap`,
+    const ta = h("textarea", { rows: 2, class: "answer-box", placeholder: q.recommendation ? t("Önerilen: {0}", q.recommendation) : t("Cevabın"), "aria-label": t("{0} için cevap", qid),
       oninput: () => store.set(sessionStorage, key(qid), ta.value) });
     ta.value = store.get(sessionStorage, key(qid));
     boxes.push([qid, ta]);
@@ -1023,12 +1074,12 @@ function answerForm(t, round) {
     return h("li", { class: "q" },
       h("div", { class: "q-text" }, h("span", { class: "q-id" }, qid), h("div", { class: "md grow" }, MD.blocks(q.text || ""))),
       options.length ? h("div", { class: "decision-options" }, options.map((o) => h("button", { type: "button", class: "small option", onclick: () => fill(o) },
-        o, o === q.recommendation ? h("span", { class: "pill ok" }, "önerilen") : ""))) : "",
+        o, o === q.recommendation ? h("span", { class: "pill ok" }, t("önerilen")) : ""))) : "",
       q.recommendation && !options.includes(q.recommendation)
-        ? h("div", { class: "q-rec small" }, h("span", { class: "muted" }, "Önerilen: "), q.recommendation, " ", h("button", { type: "button", class: "small ghost", onclick: () => fill(q.recommendation) }, "kullan")) : "",
+        ? h("div", { class: "q-rec small" }, h("span", { class: "muted" }, t("Önerilen: ")), q.recommendation, " ", h("button", { type: "button", class: "small ghost", onclick: () => fill(q.recommendation) }, t("kullan"))) : "",
       ta);
   });
-  const note = h("textarea", { rows: 2, class: "answer-box", placeholder: "Genel not (isteğe bağlı): sorulmayan ama bilinmesi gereken", "aria-label": "Genel not",
+  const note = h("textarea", { rows: 2, class: "answer-box", placeholder: t("Genel not (isteğe bağlı): sorulmayan ama bilinmesi gereken"), "aria-label": t("Genel not"),
     oninput: () => store.set(sessionStorage, key("_note"), note.value) });
   note.value = store.get(sessionStorage, key("_note"));
   const send = h("button", { class: "primary", onclick: async (e) => {
@@ -1036,55 +1087,56 @@ function answerForm(t, round) {
     const parts = boxes.filter(([, ta]) => ta.value.trim()).map(([qid, ta]) => `${qid}: ${ta.value.trim()}`);
     const open = boxes.length - parts.length;
     if (note.value.trim()) parts.push(note.value.trim());
-    if (!parts.length) return toast("Önce en az bir soruyu cevapla", true);
-    if (open && !(await confirmBox(`${open} soru cevapsız kalacak; ajan onlar için kendi varsayımını yapar.\nGönderilsin mi?`))) return;
+    if (!parts.length) return toast(t("Önce en az bir soruyu cevapla"), true);
+    if (open && !(await confirmBox(t("{0} soru cevapsız kalacak; ajan onlar için kendi varsayımını yapar.\nGönderilsin mi?", open)))) return;
     btn.disabled = true;
-    if (await act(t, "answer", parts.join("\n\n"))) {
+    if (await act(tk, "answer", parts.join("\n\n"))) {
       for (const [qid] of boxes) store.set(sessionStorage, key(qid), "");
       store.set(sessionStorage, key("_note"), "");
     }
     btn.disabled = false;
-  } }, icon("message"), "Cevapla ve devam et");
+  } }, icon("message"), t("Cevapla ve devam et"));
   return h("div", { class: "answer-form" },
-    round.intent_gap ? intentGapBox(t, round.intent_gap) : "",
+    round.intent_gap ? intentGapBox(tk, round.intent_gap) : "",
     round.context && round.context !== round.intent_gap?.summary ? h("div", { class: "answer-context md" }, MD.blocks(round.context)) : "",
     h("ol", { class: "questions" }, items),
     note,
-    h("div", { class: "row" }, send, h("span", { class: "muted small grow" }, `tur ${round.n}${round.stage ? ` · ${round.stage}` : ""} · ${ago(round.asked_at)}`)));
+    h("div", { class: "row" }, send, h("span", { class: "muted small grow" }, t("tur {0}{1} · {2}", round.n, round.stage ? ` · ${round.stage}` : "", ago(round.asked_at)))),
+    tk.auto_answer_at ? h("div", { class: "muted small" }, icon("clock"), t(" Cevap gelmezse {0} önerilenlerle devam eder.", clockAt(tk.auto_answer_at))) : "");
 }
 
 // The gate: risk, size and why it stopped; approve, or send notes that go into the plan.
-function approvalBox(t, gate) {
-  const notes = h("textarea", { rows: 3, class: "answer-box", placeholder: "Neyin değişmesini istiyorsun?", "aria-label": "Değişiklik notları" });
-  const key = `ziggy.approval.${t.target}/${t.id}`;
+function approvalBox(tk, gate) {
+  const notes = h("textarea", { rows: 3, class: "answer-box", placeholder: t("Neyin değişmesini istiyorsun?"), "aria-label": t("Değişiklik notları") });
+  const key = `ziggy.approval.${tk.target}/${tk.id}`;
   notes.value = store.get(sessionStorage, key);
   notes.addEventListener("input", () => store.set(sessionStorage, key, notes.value));
   const changeBox = h("div", { class: "stack", hidden: !notes.value },
-    h("div", { class: "muted small" }, "Not olarak plana eklenir, plan yeniden gözden geçirilir."),
+    h("div", { class: "muted small" }, t("Not olarak plana eklenir, plan yeniden gözden geçirilir.")),
     notes,
     h("div", { class: "row end" }, h("button", { class: "primary", onclick: async (e) => {
-      if (!notes.value.trim()) return toast("Önce notunu yaz", true);
+      if (!notes.value.trim()) return toast(t("Önce notunu yaz"), true);
       const btn = e.currentTarget;
       btn.disabled = true;
-      if (await act(t, "answer", notes.value.trim())) store.set(sessionStorage, key, "");
+      if (await act(tk, "answer", notes.value.trim())) store.set(sessionStorage, key, "");
       btn.disabled = false;
-    } }, icon("message"), "Notları gönder")));
+    } }, icon("message"), t("Notları gönder"))));
   return h("div", { class: "approval" },
     h("div", { class: "row tight wrap" },
-      gate.stage ? h("span", { class: "pill info" }, `${gate.stage} bitti`) : "",
-      gate.risk ? h("span", { class: `pill ${RISK_PILL[gate.risk] || "mute"}` }, `risk ${gate.risk}`) : "",
-      gate.size ? h("span", { class: "pill mute" }, `boyut ${gate.size}`) : "",
-      t.tasks?.total ? h("span", { class: "pill mute" }, `${t.tasks.total} görev`) : ""),
-    gate.reason && !gateReasonIsRating(gate.reason) ? h("div", { class: "md" }, MD.blocks(gate.reason)) : "",
-    t.split_offer ? h("div", { class: "split-offer" },
-      h("div", { class: "muted small" }, `Plan ${t.split_offer.length} dilimli ve büyük/riskli: tek PR yerine her dilim ayrı bir ticket ve yığılı draft PR olabilir.`),
-      h("ol", { class: "slice-list" }, t.split_offer.map((s) => h("li", { class: "slice" }, h("span", { class: "slice-id" }, s.id), h("span", { class: "slice-title" }, s.title))))) : "",
+      gate.stage ? h("span", { class: "pill info" }, t("{0} bitti", gate.stage)) : "",
+      gate.risk ? h("span", { class: `pill ${RISK_PILL[gate.risk] || "mute"}` }, t("risk {0}", gate.risk)) : "",
+      gate.size ? h("span", { class: "pill mute" }, t("boyut {0}", gate.size)) : "",
+      tk.tasks?.total ? h("span", { class: "pill mute" }, plural(t("{0} görev"), tk.tasks.total)) : ""),
+    gate.reason && !gateReasonIsRating(gate.reason) ? h("div", { class: "md" }, MD.blocks(t(gate.reason))) : "",
+    tk.split_offer ? h("div", { class: "split-offer" },
+      h("div", { class: "muted small" }, t("Plan {0} dilimli ve büyük/riskli: tek PR yerine her dilim ayrı bir ticket ve yığılı draft PR olabilir.", tk.split_offer.length)),
+      h("ol", { class: "slice-list" }, tk.split_offer.map((s) => h("li", { class: "slice" }, h("span", { class: "slice-id" }, s.id), h("span", { class: "slice-title" }, s.title))))) : "",
     h("div", { class: "row" },
-      primary(h("button", { class: "primary", onclick: () => act(t, "approve") }, icon("check"), t.split_offer ? "Onayla → tek PR" : "Onayla → devam")),
-      t.split_offer ? h("button", { title: "Her dilim bir öncekinin dalına yığılı ayrı bir ticket ve draft PR olur; ilk dilim hemen başlar",
-        onclick: () => act(t, "split") }, icon("layers"), `Dilimlere böl (${t.split_offer.length} PR)`) : "",
-      h("button", { onclick: () => { changeBox.hidden = !changeBox.hidden; if (!changeBox.hidden) notes.focus(); } }, icon("message"), "Değişiklik iste"),
-      h("button", { class: "ghost", onclick: () => openDrawer(t, "plan") }, icon("spec"), "Planı oku")),
+      primary(h("button", { class: "primary", onclick: () => act(tk, "approve") }, icon("check"), tk.split_offer ? t("Onayla → tek PR") : t("Onayla → devam"))),
+      tk.split_offer ? h("button", { title: t("Her dilim bir öncekinin dalına yığılı ayrı bir ticket ve draft PR olur; ilk dilim hemen başlar"),
+        onclick: () => act(tk, "split") }, icon("layers"), t("Dilimlere böl ({0} PR)", tk.split_offer.length)) : "",
+      h("button", { onclick: () => { changeBox.hidden = !changeBox.hidden; if (!changeBox.hidden) notes.focus(); } }, icon("message"), t("Değişiklik iste")),
+      h("button", { class: "ghost", onclick: () => openDrawer(tk, "plan") }, icon("spec"), t("Planı oku"))),
     changeBox);
 }
 
@@ -1103,9 +1155,9 @@ function composerOpen() {
 // ticket exists.
 let composerOrigin = null;
 const ORIGIN_CHIP = {
-  deferred: (o) => `Kaynak: ${o.ticket} deferred ${o.entry}`,
-  roadmap: (o) => `Kaynak: yol haritası ${o.phase ? `${o.phase} · ` : ""}${o.item}`,
-  lead: (o) => `Kaynak: iş önerisi ${o.proposal}`,
+  deferred: (o) => t("Kaynak: {0} deferred {1}", o.ticket, o.entry),
+  roadmap: (o) => t("Kaynak: yol haritası {0}{1}", o.phase ? `${o.phase} · ` : "", o.item),
+  lead: (o) => t("Kaynak: iş önerisi {0}", o.proposal),
 };
 
 function setComposerOrigin(origin) {
@@ -1114,7 +1166,7 @@ function setComposerOrigin(origin) {
   box.hidden = !origin;
   box.replaceChildren(...(origin ? [
     h("span", { class: "chip" }, icon("pin"), (ORIGIN_CHIP[origin.kind] || ORIGIN_CHIP.deferred)(origin)),
-    h("button", { class: "small ghost", type: "button", title: "Bağlantıyı kaldır (metin kalır)", onclick: () => setComposerOrigin(null) }, "×"),
+    h("button", { class: "small ghost", type: "button", title: t("Bağlantıyı kaldır (metin kalır)"), onclick: () => setComposerOrigin(null) }, "×"),
   ] : []));
   composerOpen();
 }
@@ -1137,7 +1189,7 @@ function roadmapTicket(target, phase, item) {
   $("new-target").value = target;
   $("new-type").value = "feat";
   $("new-title").value = item.title;
-  $("new-body").value = [item.title, `Evre: ${phase.id} · ${phase.title}`, item.detail || "", `Kaynak: yol haritası ${item.id}`]
+  $("new-body").value = [item.title, t("Evre: {0} · {1}", phase.id, phase.title), item.detail || "", t("Kaynak: yol haritası {0}", item.id)]
     .filter(Boolean).join("\n\n");
   setComposerOrigin({ kind: "roadmap", target, item: item.id, phase: phase.id });
   composerHint();
@@ -1151,14 +1203,14 @@ const pipelineKey = (name) => `ziggy.choice:${name}`;
 // remembered per project. Without one, the project's default (default_pipeline: BMad in a controlled project with BMad
 // ready). BMad stays off (and says why) while the main checkout lacks its per-developer files.
 function composerPipeline() {
-  const t = composerTarget();
+  const tk = composerTarget();
   const sel = $("new-pipeline");
-  const show = !!t?.bmad?.installed && $("new-type").value !== "project";
+  const show = !!tk?.bmad?.installed && $("new-type").value !== "project";
   sel.hidden = !show;
   const bmadOption = sel.querySelector('option[value="bmad"]');
-  bmadOption.disabled = !bmadReady(t?.bmad);
-  bmadOption.title = bmadOption.disabled ? bmadPill(t)?.title || "" : "";
-  const choice = (t ? store.get(localStorage, pipelineKey(t.name)) : "") || t?.default_pipeline || "standard";
+  bmadOption.disabled = !bmadReady(tk?.bmad);
+  bmadOption.title = bmadOption.disabled ? bmadPill(tk)?.title || "" : "";
+  const choice = (tk ? store.get(localStorage, pipelineKey(tk.name)) : "") || tk?.default_pipeline || "standard";
   sel.value = choice === "bmad" && !bmadOption.disabled ? "bmad" : "standard";
 }
 
@@ -1166,14 +1218,14 @@ const chosenPipeline = () => ($("new-pipeline").hidden ? "standard" : $("new-pip
 
 function composerHint() {
   const type = $("new-type").value;
-  const t = composerTarget();
+  const tk = composerTarget();
   const target = $("new-target").value || "?";
   composerPipeline();
   composerAfter();
   const line = chosenPipeline() === "bmad" ? "bmad" : pipelineFor(type);
   const after = $("new-after").value;
-  $("composer-hint").textContent = `${target} için ${type} ticket'ı · ${line} hattı${t?.bmad ? ` · ${bmadText(t.bmad)}` : ""}. `
-    + (after ? `${after} bitene kadar bekler, sonra ${t?.mode === "controlled" ? "başlatmak için sorulur" : "kendiliğinden başlar"}.` : "Başlatınca ilk aşama hemen koşar (ajanlar para harcar).");
+  $("composer-hint").textContent = t("{0} için {1} ticket'ı · {2} hattı{3}. ", target, type, line, tk?.bmad ? ` · ${bmadText(tk.bmad)}` : "")
+    + (after ? t("{0} bitene kadar bekler, sonra {1}.", after, tk?.mode === "controlled" ? t("başlatmak için sorulur") : t("kendiliğinden başlar")) : t("Başlatınca ilk aşama hemen koşar (ajanlar para harcar)."));
 }
 
 // "Sonra başla": the chosen project's open tickets (not done, not split, not archived); the choice survives refreshes.
@@ -1181,7 +1233,7 @@ function composerAfter() {
   const sel = $("new-after");
   const target = $("new-target").value || snapshot?.targets.find((x) => !x.error)?.name;
   const open = (snapshot?.tickets || []).filter((x) => x.target === target && !x.archived && !["done", "split", "error"].includes(x.status));
-  const options = [["", "Hemen başlayabilir"], ...open.map((x) => [x.id, `${x.id} bitince · ${x.title.length > 40 ? x.title.slice(0, 39) + "…" : x.title}`])];
+  const options = [["", t("Hemen başlayabilir")], ...open.map((x) => [x.id, t("{0} bitince · {1}", x.id, x.title.length > 40 ? x.title.slice(0, 39) + "…" : x.title)])];
   const current = sel.value;
   if (sel.options.length !== options.length || [...sel.options].some((o, i) => o.value !== options[i][0] || o.textContent !== options[i][1])) {
     sel.replaceChildren(...options.map(([v, label]) => h("option", { value: v }, label)));
@@ -1198,8 +1250,8 @@ $("new-target").addEventListener("change", () => {
 });
 $("new-after").addEventListener("change", composerHint);
 $("new-pipeline").addEventListener("change", () => {
-  const t = composerTarget();
-  if (t) store.set(localStorage, pipelineKey(t.name), $("new-pipeline").value === "bmad" ? "bmad" : "standard");
+  const tk = composerTarget();
+  if (tk) store.set(localStorage, pipelineKey(tk.name), $("new-pipeline").value === "bmad" ? "bmad" : "standard");
   composerHint();
 });
 
@@ -1207,7 +1259,7 @@ $("composer").addEventListener("submit", async (e) => {
   e.preventDefault();
   const btn = e.submitter;
   const start = btn?.value === "start";
-  if (!$("new-title").value.trim()) return toast("Başlık boş", true);
+  if (!$("new-title").value.trim()) return toast(t("Başlık boş"), true);
   if (btn) btn.disabled = true;
   try {
     const target = $("new-target").value;
@@ -1218,7 +1270,7 @@ $("composer").addEventListener("submit", async (e) => {
       run: start, plan_checkpoint: $("new-checkpoint").checked, language: $("new-lang").value, pipeline: chosenPipeline(), origin,
       after: $("new-after").value ? [$("new-after").value] : [],
     });
-    toast(`${out.ticket.id} oluşturuldu (${out.ticket.branch})${out.job ? (out.job.queued ? ", kuyruğa alındı (koşu slotları dolu)" : $("new-after").value ? `, ${$("new-after").value} bitince başlayacak` : ", başlatıldı") : ""}`);
+    toast(t("{0} oluşturuldu ({1}){2}", out.ticket.id, out.ticket.branch, out.job ? (out.job.queued ? t(", kuyruğa alındı (koşu slotları dolu)") : $("new-after").value ? t(", {0} bitince başlayacak", $("new-after").value) : t(", başlatıldı")) : ""));
     $("new-after").value = "";
     $("new-title").value = "";
     $("new-body").value = "";
@@ -1234,18 +1286,19 @@ $("composer").addEventListener("submit", async (e) => {
   }
 });
 
-$("new-lang").addEventListener("change", () => store.set(localStorage, "ziggy.lang", $("new-lang").value || "-"));
+// The language of new tickets' text (not the panel's own language, which i18n.js keeps under "ziggy.lang").
+$("new-lang").addEventListener("change", () => store.set(localStorage, "ziggy.ticketlang", $("new-lang").value || "-"));
 {
-  const saved = store.get(localStorage, "ziggy.lang");
+  const saved = store.get(localStorage, "ziggy.ticketlang");
   if (saved) { $("new-lang").value = saved === "-" ? "" : saved; $("pj-lang").value = saved === "-" ? "" : saved; }
 }
 
 function renderTargets(s) {
-  const live = s.targets.filter((t) => !t.error);
-  const names = live.map((t) => t.name);
+  const live = s.targets.filter((tk) => !tk.error);
+  const names = live.map((tk) => tk.name);
   for (const [sel, withAll] of [[$("new-target"), false], [$("filter"), true]]) {
     const current = sel.value;
-    const options = (withAll ? [["", "Tüm projeler"]] : []).concat(live.map((t) => [t.name, withAll || !t.bmad ? t.name : `${t.name} · ${bmadText(t.bmad)}`]));
+    const options = (withAll ? [["", t("Tüm projeler")]] : []).concat(live.map((tk) => [tk.name, withAll || !tk.bmad ? tk.name : `${tk.name} · ${bmadText(tk.bmad)}`]));
     if (sel.options.length !== options.length || [...sel.options].some((o, i) => o.value !== options[i][0] || o.textContent !== options[i][1])) {
       sel.replaceChildren(...options.map(([v, label]) => h("option", { value: v }, label)));
       if ([...sel.options].some((o) => o.value === current)) sel.value = current;
@@ -1281,8 +1334,8 @@ function renderSpend(s) {
   if ($("home-spend").dataset.sig === sig) return;
   $("home-spend").dataset.sig = sig;
   $("home-spend").replaceChildren(
-    h("a", { class: "spend-item", href: "#stats" }, h("span", { class: "spend-v" }, money(s.cost_today_usd)), " bugün"),
-    st ? h("a", { class: "spend-item", href: "#stats" }, h("span", { class: "spend-v" }, money(st.totals.week)), " 7 gün") : "");
+    h("a", { class: "spend-item", href: "#stats" }, h("span", { class: "spend-v" }, money(s.cost_today_usd)), t(" bugün")),
+    st ? h("a", { class: "spend-item", href: "#stats" }, h("span", { class: "spend-v" }, money(st.totals.week)), t(" 7 gün")) : "");
 }
 
 async function loadStrip() {
@@ -1298,7 +1351,7 @@ async function loadStrip() {
 const HOME_FILTER_KEY = "ziggy.home.target";
 const homeTarget = () => {
   const name = store.get(localStorage, HOME_FILTER_KEY) || "";
-  return snapshot?.targets.some((t) => t.name === name) ? name : "";
+  return snapshot?.targets.some((tk) => tk.name === name) ? name : "";
 };
 const inHome = (name) => !homeTarget() || name === homeTarget();
 
@@ -1315,14 +1368,14 @@ function renderHomeFilter(s) {
   const box = $("home-filter");
   const current = homeTarget();
   const waiting = (s.board?.waiting_on_you || []).map((e) => e.target);
-  const live = s.targets.filter((t) => !t.error);
-  const sig = JSON.stringify([current, live.map((t) => t.name), waiting]);
+  const live = s.targets.filter((tk) => !tk.error);
+  const sig = JSON.stringify([current, live.map((tk) => tk.name), waiting]);
   if (box.dataset.sig === sig) return;
   box.dataset.sig = sig;
   box.hidden = live.length < 2;
   const chip = (name, label, n) => h("button", { class: "vtab" + (name === current ? " on" : ""), "aria-pressed": String(name === current),
-    onclick: () => setHomeTarget(name) }, label, n ? h("span", { class: "vcount volt", title: "seni bekleyen" }, String(n)) : "");
-  box.replaceChildren(chip("", "Tümü", waiting.length), ...live.map((t) => chip(t.name, t.name, waiting.filter((n) => n === t.name).length)));
+    onclick: () => setHomeTarget(name) }, label, n ? h("span", { class: "vcount volt", title: t("seni bekleyen") }, String(n)) : "");
+  box.replaceChildren(chip("", t("Tümü"), waiting.length), ...live.map((tk) => chip(tk.name, tk.name, waiting.filter((n) => n === tk.name).length)));
 }
 
 // --- lead: Sıradaki işler ---------------------------------------------------------------------------
@@ -1330,8 +1383,8 @@ function renderHomeFilter(s) {
 // ticket proposals. Sıradaki işler sits below what waits on you, folded to one line until opened, with
 // "Başlat" in a personal project and only "Ticket olarak aç" (the composer) in a controlled one.
 
-const SIGNAL_TR = { ci: "CI", roadmap: "yol haritası", issue: "issue", deferred: "ertelenen bulgu" };
-const SIZE_TR = { trivial: "çok küçük", small: "küçük", medium: "orta", large: "büyük" };
+const SIGNAL_TR = { ci: "CI", roadmap: t("yol haritası"), issue: "issue", deferred: t("ertelenen bulgu") };
+const SIZE_TR = { trivial: t("çok küçük"), small: t("küçük@@size"), medium: t("orta"), large: t("büyük") };
 const NEXT_BOX = $("home-next");  // moved into the board, right below "Seni bekliyor", on every board render
 let nextOpen = false;  // folded on every load: the proposals are there when you look for them
 
@@ -1359,59 +1412,59 @@ function openNext(target) {
 
 function leadRunText(d) {
   if (!d) return "";
-  if (d.targets.some((t) => t.running)) return "Lead şimdi çalışıyor…";
-  const last = d.targets.map((t) => t.last_run).filter((r) => r?.started_at).sort((a, b) => b.started_at.localeCompare(a.started_at))[0];
-  const plan = d.enabled ? `her sabah ${d.at}` : "otomatik çalışma kapalı";
-  return last ? `son: ${when(last.started_at)} · ${plan}` : `henüz çalışmadı · ${plan}`;
+  if (d.targets.some((tk) => tk.running)) return t("Lead şimdi çalışıyor…");
+  const last = d.targets.map((tk) => tk.last_run).filter((r) => r?.started_at).sort((a, b) => b.started_at.localeCompare(a.started_at))[0];
+  const plan = d.enabled ? t("her sabah {0}", d.at) : t("otomatik çalışma kapalı");
+  return last ? t("son: {0} · {1}", when(last.started_at), plan) : t("henüz çalışmadı · {0}", plan);
 }
 
 function renderNext() {
   const d = loadLead.data;
   if (!d) return;
-  const targets = d.targets.filter((t) => inHome(t.target));
-  const sig = JSON.stringify([nextOpen, targets.map((t) => [t.target, t.mode, t.running, t.last_run, t.pending.map((p) => [p.id, p.title, p.why, p.signals])])]);
+  const targets = d.targets.filter((tk) => inHome(tk.target));
+  const sig = JSON.stringify([nextOpen, targets.map((tk) => [tk.target, tk.mode, tk.running, tk.last_run, tk.pending.map((p) => [p.id, p.title, p.why, p.signals])])]);
   if (NEXT_BOX.dataset.sig === sig) return;
   NEXT_BOX.dataset.sig = sig;
   NEXT_BOX.hidden = !targets.length;
   NEXT_BOX.classList.toggle("open", nextOpen);
-  const total = targets.reduce((n, t) => n + t.pending.length, 0);
+  const total = targets.reduce((n, tk) => n + tk.pending.length, 0);
   NEXT_BOX.replaceChildren(
     h("button", { type: "button", class: "next-toggle", "aria-expanded": String(nextOpen),
       onclick: () => { nextOpen = !nextOpen; renderNext(); } },
-      icon("chevron", "chev"), icon("zap"), "Sıradaki işler", h("span", { class: "group-n" }, String(total)),
-      h("span", { class: "muted small" }, nextOpen ? "lead'in önerileri: yol haritası, CI, issue'lar, ertelenen bulgular" : leadRunText(d))),
+      icon("chevron", "chev"), icon("zap"), t("Sıradaki işler"), h("span", { class: "group-n" }, String(total)),
+      h("span", { class: "muted small" }, nextOpen ? t("lead'in önerileri: yol haritası, CI, issue'lar, ertelenen bulgular") : leadRunText(d))),
     ...(nextOpen ? targets.map(nextTarget) : []));
 }
 
-function nextTarget(t) {
-  const last = t.last_run;
-  const refreshBtn = h("button", { class: "small ghost", disabled: t.running, title: "Sinyalleri şimdi topla ve öner (kota varsa kısa bir oturum)", onclick: async (e) => {
+function nextTarget(tk) {
+  const last = tk.last_run;
+  const refreshBtn = h("button", { class: "small ghost", disabled: tk.running, title: t("Sinyalleri şimdi topla ve öner (kota varsa kısa bir oturum)"), onclick: async (e) => {
     e.currentTarget.disabled = true;
-    try { await api(`/api/lead/${enc(t.target)}/run`, {}); toast(`${t.target}: lead başladı`); } catch (err) { toast(err.message, true); }
+    try { await api(`/api/lead/${enc(tk.target)}/run`, {}); toast(t("{0}: lead başladı", tk.target)); } catch (err) { toast(err.message, true); }
     loadLead(true);
-  } }, icon("retry"), t.running ? "Çalışıyor…" : "Yenile");
-  const status = t.running ? "şimdi çalışıyor"
-    : !last?.started_at ? "henüz çalışmadı"
-    : [`son ${when(last.started_at)}`, last.state === "failed" ? `hata: ${last.error || "?"}` : "", last.state === "skipped" ? "yeni sinyal yoktu" : "",
-      last.agentless ? `ajansız (${last.why || "kota yok"})` : ""].filter(Boolean).join(" · ");
+  } }, icon("retry"), tk.running ? t("Çalışıyor…") : t("Yenile"));
+  const status = tk.running ? t("şimdi çalışıyor")
+    : !last?.started_at ? t("henüz çalışmadı")
+    : [t("son {0}", when(last.started_at)), last.state === "failed" ? t("hata: {0}", last.error || "?") : "", last.state === "skipped" ? t("yeni sinyal yoktu") : "",
+      last.agentless ? t("ajansız ({0})", last.why || t("kota yok")) : ""].filter(Boolean).join(" · ");
   return h("section", { class: "next-target" },
-    h("div", { class: "next-head" }, snapshot?.targets.length > 1 || t.mode === "controlled" ? h("strong", {}, t.target) : "", controlledPill(t),
+    h("div", { class: "next-head" }, snapshot?.targets.length > 1 || tk.mode === "controlled" ? h("strong", {}, tk.target) : "", controlledPill(tk),
       h("span", { class: "muted small grow" }, status), refreshBtn),
-    (last?.warnings || []).length ? h("div", { class: "small warn-text" }, last.warnings.join(" · ")) : "",
-    t.pending.length ? h("div", { class: "live-grid" }, t.pending.map((p) => proposalCard(t, p)))
-      : h("p", { class: "muted small" }, "Bekleyen öneri yok. Lead her sabah sinyallere bakar; Yenile şimdi bakar."));
+    (last?.warnings || []).length ? h("div", { class: "small warn-text" }, last.warnings.map((w) => t(w)).join(" · ")) : "",
+    tk.pending.length ? h("div", { class: "live-grid" }, tk.pending.map((p) => proposalCard(tk, p)))
+      : h("p", { class: "muted small" }, t("Bekleyen öneri yok. Lead her sabah sinyallere bakar; Yenile şimdi bakar.")));
 }
 
-function proposalCard(t, p) {
-  const actions = t.mode === "controlled"
-    ? [h("button", { class: "small primary", title: "Kontrollü proje: öneri yalnız öneri; ticket'ı composer'dan sen oluşturursun", onclick: () => proposalToComposer(t, p) }, icon("ticket"), "Ticket olarak aç")]
-    : [h("button", { class: "small primary", onclick: (e) => startProposal(e.currentTarget, t, p) }, icon("play"), "Başlat"),
-      h("button", { class: "small", onclick: () => proposalToComposer(t, p) }, icon("spec"), "Düzenle")];
-  actions.push(h("button", { class: "small ghost", onclick: (e) => rejectProposal(e.currentTarget, t, p) }, icon("x"), "Reddet"));
+function proposalCard(tk, p) {
+  const actions = tk.mode === "controlled"
+    ? [h("button", { class: "small primary", title: t("Kontrollü proje: öneri yalnız öneri; ticket'ı composer'dan sen oluşturursun"), onclick: () => proposalToComposer(tk, p) }, icon("ticket"), t("Ticket olarak aç"))]
+    : [h("button", { class: "small primary", onclick: (e) => startProposal(e.currentTarget, tk, p) }, icon("play"), t("Başlat")),
+      h("button", { class: "small", onclick: () => proposalToComposer(tk, p) }, icon("spec"), t("Düzenle"))];
+  actions.push(h("button", { class: "small ghost", onclick: (e) => rejectProposal(e.currentTarget, tk, p) }, icon("x"), t("Reddet")));
   return h("article", { class: "live-card proposal-card" + (p.agentless ? " agentless" : "") },
     h("div", { class: "run-head" }, h("span", { class: "id" }, p.id), h("span", { class: "type" }, p.type),
       p.size ? h("span", { class: "pill mute" }, SIZE_TR[p.size] || p.size) : "",
-      p.agentless ? h("span", { class: "pill warn", title: "Kota ya da oturum yoktu: sinyalden doğrudan yazıldı" }, "ajansız") : "",
+      p.agentless ? h("span", { class: "pill warn", title: t("Kota ya da oturum yoktu: sinyalden doğrudan yazıldı") }, t("ajansız")) : "",
       h("span", { class: "grow" }), h("span", { class: "muted small nowrap" }, ago(p.created_at))),
     h("div", { class: "proposal-title" }, p.title),
     p.why ? h("div", { class: "small proposal-why" }, p.why) : "",
@@ -1420,14 +1473,14 @@ function proposalCard(t, p) {
     h("div", { class: "row tight wrap" }, actions));
 }
 
-async function startProposal(btn, t, p) {
-  if (!(await confirmBox(`${p.title}\n\n${t.target} projesinde bu ticket açılıp hemen başlatılsın mı? Ajanlar para harcar.`))) return;
+async function startProposal(btn, tk, p) {
+  if (!(await confirmBox(t("{0}\n\n{1} projesinde bu ticket açılıp hemen başlatılsın mı? Ajanlar para harcar.", p.title, tk.target)))) return;
   btn.disabled = true;
   try {
-    const out = await api(`/api/lead/${enc(t.target)}/proposals/${enc(p.id)}`, { action: "start", language: $("new-lang").value });
-    toast(`${out.ticket.id} oluşturuldu, ${out.job?.queued ? "kuyruğa alındı (koşu slotları dolu)" : "başlatıldı"}`);
+    const out = await api(`/api/lead/${enc(tk.target)}/proposals/${enc(p.id)}`, { action: "start", language: $("new-lang").value });
+    toast(t("{0} oluşturuldu, {1}", out.ticket.id, out.job?.queued ? t("kuyruğa alındı (koşu slotları dolu)") : t("başlatıldı")));
     await refresh();
-    const row = rowOf(t.target, out.ticket.id);
+    const row = rowOf(tk.target, out.ticket.id);
     if (row) openDrawer(row, "activity");
   } catch (e) {
     toast(e.message, true);
@@ -1436,14 +1489,14 @@ async function startProposal(btn, t, p) {
   loadLead(true);
 }
 
-async function rejectProposal(btn, t, p) {
-  const got = await askBox({ title: `${p.id} reddedilsin mi?`, text: `${p.title}\nBu önerinin kaynakları bir daha önerilmez.`,
-    placeholder: "Neden (isteğe bağlı)", max: 500, yes: "Reddet", optional: true });
+async function rejectProposal(btn, tk, p) {
+  const got = await askBox({ title: t("{0} reddedilsin mi?", p.id), text: t("{0}\nBu önerinin kaynakları bir daha önerilmez.", p.title),
+    placeholder: t("Neden (isteğe bağlı)"), max: 500, yes: t("Reddet"), optional: true });
   if (!got) return;
   btn.disabled = true;
   try {
-    await api(`/api/lead/${enc(t.target)}/proposals/${enc(p.id)}`, { action: "reject", ...(got.text ? { reason: got.text } : {}) });
-    toast(`${t.target}: ${p.id} reddedildi`);
+    await api(`/api/lead/${enc(tk.target)}/proposals/${enc(p.id)}`, { action: "reject", ...(got.text ? { reason: got.text } : {}) });
+    toast(t("{0}: {1} reddedildi", tk.target, p.id));
   } catch (e) {
     toast(e.message, true);
     btn.disabled = false;
@@ -1453,42 +1506,42 @@ async function rejectProposal(btn, t, p) {
 }
 
 // "Düzenle" (personal) and "Ticket olarak aç" (controlled): the composer, prefilled; creating it accepts the proposal.
-function proposalToComposer(t, p) {
+function proposalToComposer(tk, p) {
   if (currentView() !== "home") location.hash = "#home";
-  $("new-target").value = t.target;
+  $("new-target").value = tk.target;
   $("new-type").value = p.type;
   $("new-title").value = p.title;
   $("new-body").value = p.ticket_body;
-  setComposerOrigin({ kind: "lead", target: t.target, proposal: p.id });
+  setComposerOrigin({ kind: "lead", target: tk.target, proposal: p.id });
   composerHint();
   setTimeout(() => { $("new-title").focus(); $("composer").scrollIntoView({ block: "center" }); }, 0);
 }
 
 function renderStatus(s) {
-  const running = s.tickets.filter((t) => t.running);
+  const running = s.tickets.filter((tk) => tk.running);
   $("status-line").replaceChildren(
-    h("span", { class: `dot ${running.length ? "live" : ""}` }), running.length ? `${running.length} koşu` : "boşta",
-    h("span", {}, "·"), `${money(s.cost_today_usd)} bugün`);
+    h("span", { class: `dot ${running.length ? "live" : ""}` }), running.length ? plural(t("{0} koşu"), running.length) : t("boşta"),
+    h("span", {}, "·"), t("{0} bugün", money(s.cost_today_usd)));
 }
 
 // --- ticket lists with view tabs ------------------------------------------------------------------
 
 const VIEWS_T = [
-  ["all", "Hepsi", () => true],
-  ["needs", "Seni bekliyor", (t) => ["needs-user", "awaiting-approval"].includes(t.status) && !t.running],
-  ["running", "Sürüyor", (t) => t.running],
-  ["new", "Başlamadı", (t) => t.status === "new" && !t.running],
-  ["failed", "Başarısız", (t) => t.status === "failed" && !t.running],
-  ["done", "Bitti", (t) => t.status === "done" && !t.running],
-  ["archived", "Arşiv", () => true],
+  ["all", t("Hepsi"), () => true],
+  ["needs", t("Seni bekliyor"), (tk) => ["needs-user", "awaiting-approval"].includes(tk.status) && !tk.running],
+  ["running", t("Sürüyor"), (tk) => tk.running],
+  ["new", t("Başlamadı"), (tk) => tk.status === "new" && !tk.running],
+  ["failed", t("Başarısız"), (tk) => tk.status === "failed" && !tk.running],
+  ["done", t("Bitti"), (tk) => tk.status === "done" && !tk.running],
+  ["archived", t("Arşiv"), () => true],
 ];
 const WEEK = 7 * 86400000;
-const isOld = (t) => t.status === "done" && Date.now() - new Date(t.updated_at || 0).getTime() > WEEK;
+const isOld = (tk) => tk.status === "done" && Date.now() - new Date(tk.updated_at || 0).getTime() > WEEK;
 const viewRows = (rows, view) => {
   const [, , test] = VIEWS_T.find(([k]) => k === view) || VIEWS_T[0];
-  return rows.filter((t) => (view === "archived" ? t.archived : !t.archived) && test(t));
+  return rows.filter((tk) => (view === "archived" ? tk.archived : !tk.archived) && test(tk));
 };
-const PRIORITY = (t) => (t.running ? 1 : ["needs-user", "awaiting-approval"].includes(t.status) ? 0 : 2);
+const PRIORITY = (tk) => (tk.running ? 1 : ["needs-user", "awaiting-approval"].includes(tk.status) ? 0 : 2);
 
 function viewTabs(box, rows, view, onPick) {
   const sig = JSON.stringify([view, VIEWS_T.map(([k]) => viewRows(rows, k).length)]);
@@ -1511,22 +1564,22 @@ function renderTickets(s) {
   const view = ticketsView();
   const filter = $("filter").value;
   const words = $("search").value.trim().toLowerCase().split(/\s+/).filter(Boolean);
-  const scoped = s.tickets.filter((t) => !filter || t.target === filter);
+  const scoped = s.tickets.filter((tk) => !filter || tk.target === filter);
   viewTabs($("ticket-tabs"), scoped, view, (key) => {
     history.replaceState(null, "", key === "all" ? "#tickets" : `#tickets?view=${key}`);
     renderTickets(snapshot);
   });
-  let rows = viewRows(scoped, view).filter((t) => !words.length
-    || words.every((w) => [t.id, t.title, t.branch, t.target, t.status, t.type, t.stage].some((v) => (v || "").toLowerCase().includes(w))));
+  let rows = viewRows(scoped, view).filter((tk) => !words.length
+    || words.every((w) => [tk.id, tk.title, tk.branch, tk.target, tk.status, tk.type, tk.stage].some((v) => (v || "").toLowerCase().includes(w))));
   const old = view === "all" ? rows.filter(isOld) : [];
   $("old-toggle").hidden = !old.length;
-  $("old-label").textContent = `7 günden eski ${old.length} biten ticket'ı da göster`;
-  if (!$("show-old").checked) rows = rows.filter((t) => !old.includes(t));
+  $("old-label").textContent = t("7 günden eski {0} biten ticket'ı da göster", old.length);
+  if (!$("show-old").checked) rows = rows.filter((tk) => !old.includes(tk));
   rows.sort((a, b) => PRIORITY(a) - PRIORITY(b) || String(b.updated_at).localeCompare(String(a.updated_at)));
-  const live = rows.filter((t) => t.running).length;
-  $("ticket-count").textContent = live ? `${rows.length} · ${live} hareket halinde` : String(rows.length);
+  const live = rows.filter((tk) => tk.running).length;
+  $("ticket-count").textContent = live ? t("{0} · {1} hareket halinde", rows.length, live) : String(rows.length);
   ticketList($("ticket-list"), rows, { key: [view, filter, words, $("show-old").checked], showTarget: !filter,
-    empty: !s.tickets.length ? "Henüz ticket yok. Ana sayfadan bir başlık yazıp başla." : words.length ? "Filtreye uyan ticket yok." : `"${(VIEWS_T.find(([k]) => k === view) || VIEWS_T[0])[1]}" içinde ticket yok.` });
+    empty: !s.tickets.length ? t("Henüz ticket yok. Ana sayfadan bir başlık yazıp başla.") : words.length ? t("Filtreye uyan ticket yok.") : t("\"{0}\" içinde ticket yok.", (VIEWS_T.find(([k]) => k === view) || VIEWS_T[0])[1]) });
 }
 
 function ticketList(container, rows, opts) {
@@ -1540,109 +1593,109 @@ function ticketList(container, rows, opts) {
     return;
   }
   const head = h("div", { class: "trow head", "aria-hidden": "true" },
-    h("div", {}, "Ticket"), h("div", {}, "Başlık"), h("div", {}, "İlerleme"), h("div", {}, "PR"), h("div", { class: "num t-cost" }, "Maliyet"), h("div", { class: "t-time" }, "Güncellendi"), h("div", {}));
-  container.replaceChildren(head, ...rows.map((t) => h("div", {
-    class: "trow item" + (t.running ? " running" : "") + (["quiet", "stall"].includes(t.needs_you?.kind) ? " quiet" : "") + (t.status === "failed" ? " failed" : "")
-      + (!t.running && ["needs-user", "awaiting-approval"].includes(t.status) ? " needs" : ""),
+    h("div", {}, "Ticket"), h("div", {}, t("Başlık")), h("div", {}, t("İlerleme")), h("div", {}, "PR"), h("div", { class: "num t-cost" }, t("Maliyet")), h("div", { class: "t-time" }, t("Güncellendi")), h("div", {}));
+  container.replaceChildren(head, ...rows.map((tk) => h("div", {
+    class: "trow item" + (tk.running ? " running" : "") + (["quiet", "stall"].includes(tk.needs_you?.kind) ? " quiet" : "") + (tk.status === "failed" ? " failed" : "")
+      + (!tk.running && ["needs-user", "awaiting-approval"].includes(tk.status) ? " needs" : ""),
     role: "listitem", tabindex: "0",
-    onclick: (e) => { if (!e.target.closest("a,button")) openDrawer(t); },
-    onkeydown: (e) => { if (e.key === "Enter" && e.target === e.currentTarget) openDrawer(t); },
+    onclick: (e) => { if (!e.target.closest("a,button")) openDrawer(tk); },
+    onkeydown: (e) => { if (e.key === "Enter" && e.target === e.currentTarget) openDrawer(tk); },
   },
-    h("div", { class: "t-idcell" }, h("span", { class: "id" }, t.id), typeTag(t), bmadTag(t), controlledTag(t)),
+    h("div", { class: "t-idcell" }, h("span", { class: "id" }, tk.id), typeTag(tk), bmadTag(tk), controlledTag(tk)),
     h("div", { class: "t-main" },
-      h("div", { class: "t-title", title: t.title }, t.title),
-      h("div", { class: "t-sub" }, opts.showTarget ? h("span", {}, t.target) : "", originLink(t), h("span", { class: "branch", title: t.branch }, icon("branch"), t.branch || "-"))),
+      h("div", { class: "t-title", title: tk.title }, tk.title),
+      h("div", { class: "t-sub" }, riskChip(tk), opts.showTarget ? h("span", {}, tk.target) : "", originLink(tk), h("span", { class: "branch", title: tk.branch }, icon("branch"), tk.branch || "-"))),
     h("div", { class: "t-status" },
-      pipelineBar(t, true),
-      h("div", { class: "row tight" }, badge(t.status), t.stage && !["done", "new"].includes(t.status) ? h("span", { class: "muted small mono" }, t.stage) : "",
-        t.tasks?.total ? h("span", { class: "muted small", title: "biten / toplam görev" }, `${t.tasks.done}/${t.tasks.total}`) : ""),
-      t.running ? h("span", { class: "live-line" }, runLabel(t)) : t.status === "waiting" ? h("span", { class: "live-line" }, waitText(t))
-        : t.status === "quota" ? h("span", { class: "live-line warn-text" }, quotaText(t))
-        : t.status === "host" ? h("span", { class: "live-line warn-text" }, HOST_TEXT)
-        : t.status === "split" ? h("span", { class: "muted small" }, `${(t.children || []).length} dilim: ${(t.children || []).map((c) => c.id).join(", ")}`) : "",
-      t.archived ? h("span", { class: "pill mute" }, "arşivde") : reviewPill(t)),
-    h("div", { class: "t-pr" }, t.pr ? link(t.pr, h("span", { class: `pr-pill ${(t.pr_state || "open").toLowerCase()}` }, icon("pr"), "#" + t.pr.split("/").pop(),
-      t.pr_state && t.pr_state !== "OPEN" ? (t.pr_state === "MERGED" ? " merged" : " kapalı") : "")) : h("span", { class: "muted" }, "—")),
-    h("div", { class: "num t-cost" }, money(t.cost_usd)),
-    h("div", { class: "muted t-time nowrap" }, ago(t.updated_at)),
-    h("div", { class: "t-actions" }, actionButtons(t, true)),
+      pipelineBar(tk, true),
+      h("div", { class: "row tight" }, badge(tk.status), tk.stage && !["done", "new"].includes(tk.status) ? h("span", { class: "muted small mono" }, tk.stage) : "",
+        tk.tasks?.total ? h("span", { class: "muted small", title: t("biten / toplam görev") }, `${tk.tasks.done}/${tk.tasks.total}`) : ""),
+      tk.running ? h("span", { class: "live-line" }, runLabel(tk)) : tk.status === "waiting" ? h("span", { class: "live-line" }, waitText(tk))
+        : tk.status === "quota" ? h("span", { class: "live-line warn-text" }, quotaText(tk))
+        : tk.status === "host" ? h("span", { class: "live-line warn-text" }, HOST_TEXT)
+        : tk.status === "split" ? h("span", { class: "muted small" }, t("{0} dilim: {1}", (tk.children || []).length, (tk.children || []).map((c) => c.id).join(", "))) : "",
+      tk.archived ? h("span", { class: "pill mute" }, t("arşivde")) : reviewPill(tk)),
+    h("div", { class: "t-pr" }, tk.pr ? link(tk.pr, h("span", { class: `pr-pill ${(tk.pr_state || "open").toLowerCase()}` }, icon("pr"), "#" + tk.pr.split("/").pop(),
+      tk.pr_state && tk.pr_state !== "OPEN" ? (tk.pr_state === "MERGED" ? " merged" : t(" kapalı")) : "")) : h("span", { class: "muted" }, "—")),
+    h("div", { class: "num t-cost" }, money(tk.cost_usd)),
+    h("div", { class: "muted t-time nowrap" }, ago(tk.updated_at)),
+    h("div", { class: "t-actions" }, actionButtons(tk, true)),
   )));
 }
 
 // An issue the ticket came from (YouTrack and the like), as a link to the tracker; a deferred finding,
 // as a button to the ticket whose review deferred it; a roadmap item it works on, as a link to its project's roadmap.
-function originLink(t) {
-  const r = t.roadmap;
+function originLink(tk) {
+  const r = tk.roadmap;
   if (r) {
-    return h("a", { class: "origin", href: `#project/${encodeURIComponent(t.target)}`, title: r.title ? `Yol haritası maddesi: ${r.title}` : "Yol haritası maddesi",
-      onclick: (e) => e.stopPropagation() }, `Yol haritası: ${r.phase ? `${r.phase} · ` : ""}${r.item}`);
+    return h("a", { class: "origin", href: `#project/${encodeURIComponent(tk.target)}`, title: r.title ? t("Yol haritası maddesi: {0}", r.title) : t("Yol haritası maddesi"),
+      onclick: (e) => e.stopPropagation() }, t("Yol haritası: {0}{1}", r.phase ? `${r.phase} · ` : "", r.item));
   }
-  const o = t.origin;
+  const o = tk.origin;
   if (!o || o.kind === "roadmap") return "";
   if (o.kind === "lead") {
-    return h("button", { class: "origin link", type: "button", title: `Lead'in iş önerisi ${o.proposal}`,
-      onclick: (e) => { e.stopPropagation(); location.hash = "#home"; } }, `← öneri ${o.proposal}`);
+    return h("button", { class: "origin link", type: "button", title: t("Lead'in iş önerisi {0}", o.proposal),
+      onclick: (e) => { e.stopPropagation(); location.hash = "#home"; } }, t("← öneri {0}", o.proposal));
   }
   if (o.kind === "deferred") {
-    return h("button", { class: "origin link", type: "button", title: `${o.ticket} ticket'ının ertelenen bulgusu ${o.entry}`,
-      onclick: (e) => { e.stopPropagation(); const row = rowOf(t.target, o.ticket); if (row) openDrawer(row, "plan"); } }, `← ${o.ticket} deferred`);
+    return h("button", { class: "origin link", type: "button", title: t("{0} ticket'ının ertelenen bulgusu {1}", o.ticket, o.entry),
+      onclick: (e) => { e.stopPropagation(); const row = rowOf(tk.target, o.ticket); if (row) openDrawer(row, "plan"); } }, `← ${o.ticket} deferred`);
   }
   const label = h("span", { class: "origin" }, o.ref, o.url ? " ↗" : "");
   return o.url ? link(o.url, label) : label;
 }
 
-function reviewPill(t) {
-  const r = t.review;
+function reviewPill(tk) {
+  const r = tk.review;
   if (!r || r.state === "running") return "";
-  const text = r.state === "error" ? "review hata" : r.stale ? "review · eski" : r.findings ? `review · ${r.findings} bulgu` : "review · temiz";
+  const text = r.state === "error" ? t("review hata") : r.stale ? t("review · eski") : r.findings ? plural(t("review · {0} bulgu"), r.findings) : t("review · temiz");
   return h("button", {
     class: `pill-btn ${r.state === "error" ? "bad" : r.stale ? "" : r.findings ? "warn" : "ok"}`,
-    title: r.stale ? "Dal bu review'dan sonra değişti; yeni hali incelenmedi" : null,
-    onclick: (e) => { e.stopPropagation(); openDrawer(t, "review"); },
-  }, icon("eye"), text, r.posted ? " · PR'da" : "");
+    title: r.stale ? t("Dal bu review'dan sonra değişti; yeni hali incelenmedi") : null,
+    onclick: (e) => { e.stopPropagation(); openDrawer(tk, "review"); },
+  }, icon("eye"), text, r.posted ? t(" · PR'da") : "");
 }
 
 // Projects as cards: what is open, what it cost, its run slots (a used slot slides), and the way in.
 function projectList(box, s) {
   const costs = Object.fromEntries((loadStrip.data?.by_target || []).map((g) => [g.name, g]));
   const waiting = (s.board?.waiting_on_you || []).map((e) => e.target);
-  const signature = JSON.stringify([s.targets, s.tickets.map((t) => [t.target, t.archived, t.status, t.running, t.id]), costs, waiting]);
+  const signature = JSON.stringify([s.targets, s.tickets.map((tk) => [tk.target, tk.archived, tk.status, tk.running, tk.id]), costs, waiting]);
   if (signature === box.dataset.sig) return;
   box.dataset.sig = signature;
   if (!s.targets.length) {
-    box.replaceChildren(empty("Henüz proje yok. 'Mevcut repoyu ekle' ya da 'Sıfırdan yeni proje' ile başla.", "box"));
+    box.replaceChildren(empty(t("Henüz proje yok. 'Mevcut repoyu ekle' ya da 'Sıfırdan yeni proje' ile başla."), "box"));
     return;
   }
   const stat = (value, label) => h("div", { class: "pstat" }, h("div", { class: "pstat-v" }, value), h("div", { class: "pstat-l" }, label));
-  box.replaceChildren(...s.targets.map((t) => {
-    const rows = s.tickets.filter((x) => x.target === t.name && !x.archived);
+  box.replaceChildren(...s.targets.map((tk) => {
+    const rows = s.tickets.filter((x) => x.target === tk.name && !x.archived);
     const open = rows.filter((x) => !["done", "split"].includes(x.status)).length;
     const live = rows.filter((x) => x.running && !x.queued_at);
-    const mine = waiting.filter((n) => n === t.name).length;
-    const g = costs[t.name];
-    const href = `#project/${encodeURIComponent(t.name)}`;
-    const state = t.error ? h("span", { class: "pill bad" }, "config hatası")
-      : live.length ? h("span", { class: "pill info" }, h("span", { class: "dot live" }), `${live.length} canlı`)
-      : mine ? h("span", { class: "pill volt" }, h("span", { class: "dot volt-dot" }), `${mine} sende`)
-      : h("span", { class: "pill mute" }, "boşta");
-    const slots = Array.from({ length: t.max_active || 0 }, (_, i) => h("span", { class: "slot-seg" + (i < (t.active || []).length ? " used" : "") }));
+    const mine = waiting.filter((n) => n === tk.name).length;
+    const g = costs[tk.name];
+    const href = `#project/${encodeURIComponent(tk.name)}`;
+    const state = tk.error ? h("span", { class: "pill bad" }, t("config hatası"))
+      : live.length ? h("span", { class: "pill info" }, h("span", { class: "dot live" }), t("{0} canlı", live.length))
+      : mine ? h("span", { class: "pill volt" }, h("span", { class: "dot volt-dot" }), t("{0} sende", mine))
+      : h("span", { class: "pill mute" }, t("boşta"));
+    const slots = Array.from({ length: tk.max_active || 0 }, (_, i) => h("span", { class: "slot-seg" + (i < (tk.active || []).length ? " used" : "") }));
     return h("article", { class: "pcard" + (rows.length ? "" : " fresh"), role: "listitem" },
       h("div", { class: "pcard-top" },
-        h("div", { class: "grow" }, t.error ? h("span", { class: "pcard-name" }, t.name) : h("a", { class: "pcard-name", href }, t.name),
-          h("div", { class: "pcard-where mono" }, [t.github_repo, homeShort(t.path)].filter(Boolean).join(" · "))),
+        h("div", { class: "grow" }, tk.error ? h("span", { class: "pcard-name" }, tk.name) : h("a", { class: "pcard-name", href }, tk.name),
+          h("div", { class: "pcard-where mono" }, [tk.github_repo, homeShort(tk.path)].filter(Boolean).join(" · "))),
         state),
-      t.error ? h("p", { class: "error-banner small" }, t.error)
-        : rows.length ? h("div", { class: "pstats" }, stat(String(open), "açık ticket"), stat(g ? money(g.cost) : "—", "toplam maliyet"), stat(g ? String(g.sessions) : "0", "oturum"))
-        : h("div", { class: "pcard-empty" }, h("strong", {}, "Henüz ticket yok"), h("span", { class: "muted small" }, "Proje hazır. İlk işi ver; plan çıkınca seni çağırır.")),
-      t.error ? "" : h("div", { class: "pcard-slot" }, h("span", { class: "side-label" }, "Slot"), h("span", { class: "slot-segs" }, slots),
-        h("span", { class: "muted small grow" }, live.length ? live.map((x) => `${x.id} · ${x.stage || "hazırlanıyor"}`).join(", ") : "boş")),
-      h("div", { class: "row pcard-foot" }, bmadPill(t), controlledPill(t),
+      tk.error ? h("p", { class: "error-banner small" }, t(tk.error))
+        : rows.length ? h("div", { class: "pstats" }, stat(String(open), t("açık ticket")), stat(g ? money(g.cost) : "—", t("toplam maliyet")), stat(g ? String(g.sessions) : "0", t("oturum")))
+        : h("div", { class: "pcard-empty" }, h("strong", {}, t("Henüz ticket yok")), h("span", { class: "muted small" }, t("Proje hazır. İlk işi ver; plan çıkınca seni çağırır."))),
+      tk.error ? "" : h("div", { class: "pcard-slot" }, h("span", { class: "side-label" }, "Slot"), h("span", { class: "slot-segs" }, slots),
+        h("span", { class: "muted small grow" }, live.length ? live.map((x) => `${x.id} · ${x.stage || t("hazırlanıyor")}`).join(", ") : t("boş"))),
+      h("div", { class: "row pcard-foot" }, bmadPill(tk), controlledPill(tk),
         h("span", { class: "grow" }),
-        t.error ? "" : h("button", { class: "small", onclick: () => { focusComposer(); $("new-target").value = t.name; composerHint(); } }, rows.length ? "Ticket ver" : "İlk ticket'ı ver"),
-        rows.length ? h("button", { class: "small ghost", onclick: () => { $("filter").value = t.name; location.hash = "#tickets"; } }, `${rows.length} ticket`) : "",
-        t.error ? "" : h("a", { class: "button small ghost", href }, "Aç →"),
-        h("button", { class: "small ghost", title: "Projeyi Ziggy'den çıkar (repo ve ticket geçmişi yerinde kalır)", disabled: live.length > 0,
-          onclick: (e) => removeTarget(e.currentTarget, t.name) }, icon("x"), "Çıkar")));
+        tk.error ? "" : h("button", { class: "small", onclick: () => { focusComposer(); $("new-target").value = tk.name; composerHint(); } }, rows.length ? t("Ticket ver") : t("İlk ticket'ı ver")),
+        rows.length ? h("button", { class: "small ghost", onclick: () => { $("filter").value = tk.name; location.hash = "#tickets"; } }, `${rows.length} ticket`) : "",
+        tk.error ? "" : h("a", { class: "button small ghost", href }, t("Aç →")),
+        h("button", { class: "small ghost", title: t("Projeyi Ziggy'den çıkar (repo ve ticket geçmişi yerinde kalır)"), disabled: live.length > 0,
+          onclick: (e) => removeTarget(e.currentTarget, tk.name) }, icon("x"), t("Çıkar"))));
   }));
 }
 
@@ -1655,25 +1708,25 @@ async function loadLeftovers() {
   try { found = (await api("/api/leftovers")).leftovers; } catch { return; }
   const box = $("leftovers");
   box.hidden = !found.length;
-  box.replaceChildren(h("h2", { class: "board-group-h" }, "Çıkarılmış projelerin artıkları",
-    h("span", { class: "muted small" }, "Ticket geçmişi ve hafıza kalır; yalnız worktree'ler silinir, dalları repoda durur.")),
+  box.replaceChildren(h("h2", { class: "board-group-h" }, t("Çıkarılmış projelerin artıkları"),
+    h("span", { class: "muted small" }, t("Ticket geçmişi ve hafıza kalır; yalnız worktree'ler silinir, dalları repoda durur."))),
   ...found.map((x) => h("div", { class: "row leftover" },
     h("strong", {}, x.name), h("span", { class: "muted small grow" }, `${bytes(x.bytes)} · ${x.worktrees.length} worktree (${bytes(x.worktree_bytes)})`
-      + (x.worktrees.some((t) => t.dirty) ? " · kaydedilmemiş değişiklik var" : "")),
-    x.worktrees.length ? h("button", { class: "small", onclick: (e) => purgeLeftover(e.currentTarget, x) }, icon("x"), `Worktree'leri sil (${bytes(x.worktree_bytes)})`) : "")));
+      + (x.worktrees.some((tk) => tk.dirty) ? t(" · kaydedilmemiş değişiklik var") : "")),
+    x.worktrees.length ? h("button", { class: "small", onclick: (e) => purgeLeftover(e.currentTarget, x) }, icon("x"), t("Worktree'leri sil ({0})", bytes(x.worktree_bytes))) : "")));
 }
 
 async function purgeLeftover(btn, x) {
-  if (!(await confirmBox(`${x.name} projesinin ${x.worktrees.length} worktree'si silinsin mi? (${bytes(x.worktree_bytes)})\n\nDalları repoda, ticket geçmişi ve hafıza Ziggy'de kalır.`))) return;
+  if (!(await confirmBox(t("{0} projesinin {1} worktree'si silinsin mi? ({2})\n\nDalları repoda, ticket geçmişi ve hafıza Ziggy'de kalır.", x.name, x.worktrees.length, bytes(x.worktree_bytes))))) return;
   btn.disabled = true;
   const send = (force) => api(`/api/leftovers/${enc(x.name)}/purge`, { force });
   try {
     let out;
     try { out = await send(false); } catch (e) {
-      if (!/uncommitted/.test(e.message) || !(await confirmBox(`${e.message}\n\nYine de silinsin mi?`))) throw e;
+      if (!/uncommitted/.test(e.message) || !(await confirmBox(t("{0}\n\nYine de silinsin mi?", e.message)))) throw e;
       out = await send(true);
     }
-    toast(`${x.name}: ${out.removed.length} worktree silindi, ${bytes(out.freed_bytes)} açıldı`);
+    toast(t("{0}: {1} worktree silindi, {2} açıldı", x.name, out.removed.length, bytes(out.freed_bytes)));
   } catch (e) {
     toast(e.message, true);
   }
@@ -1683,11 +1736,11 @@ async function purgeLeftover(btn, x) {
 // "Çıkar": the target's config table goes (after a backup); its repository, worktrees, tickets and memory stay,
 // so adding the same repository again brings them back. The server refuses while one of its tickets runs.
 async function removeTarget(btn, name) {
-  if (!(await confirmBox(`${name} Ziggy'den çıkarılsın mı?\n\nConfig'teki kaydı silinir (önce yedeklenir). Repo, worktree'ler, ticket geçmişi ve hafıza yerinde kalır; aynı repoyu yeniden eklersen geri gelir.`))) return;
+  if (!(await confirmBox(t("{0} Ziggy'den çıkarılsın mı?\n\nConfig'teki kaydı silinir (önce yedeklenir). Repo, worktree'ler, ticket geçmişi ve hafıza yerinde kalır; aynı repoyu yeniden eklersen geri gelir.", name)))) return;
   btn.disabled = true;
   try {
     await api(`/api/targets/${enc(name)}/remove`, {});
-    toast(`${name} Ziggy'den çıkarıldı`);
+    toast(t("{0} Ziggy'den çıkarıldı", name));
     await refresh();
     loadLeftovers();
   } catch (e) {
@@ -1715,7 +1768,7 @@ async function refresh() {
   renderInbox(s);
   renderSessions(s);
   renderTickets(s);
-  $("tickets-count").textContent = String(s.tickets.filter((t) => !t.archived && !["done", "split"].includes(t.status)).length || "");
+  $("tickets-count").textContent = String(s.tickets.filter((tk) => !tk.archived && !["done", "split"].includes(tk.status)).length || "");
   $("projects-count").textContent = String(s.targets.length || "");
   projectList($("targets"), s);
   if (currentView() === "project") renderProject(s);
@@ -1736,17 +1789,17 @@ async function refresh() {
 // its old name: it is the open ticket's state. The tab bar groups the run's record (Etkinlik, Aşamalar,
 // Job'lar) under Kayıt; the chat sits beside the tabs; Değişiklikler is the full review page.
 
-const TABS = [["plan", "Plan", "spec"], ["questions", "Sorular", "message"], ["changes", "Değişiklikler", "diff"], ["review", "Review", "eye"],
-  ["log", "Kayıt", "activity"], ["ticket", "Ticket metni", "ticket"]];
-const LOG_TABS = [["activity", "Etkinlik"], ["stages", "Aşamalar"], ["jobs", "Job'lar"]];
+const TABS = [["plan", "Plan", "spec"], ["questions", t("Sorular"), "message"], ["changes", t("Değişiklikler"), "diff"], ["review", "Review", "eye"],
+  ["log", t("Kayıt"), "activity"], ["ticket", t("Ticket metni"), "ticket"]];
+const LOG_TABS = [["activity", t("Etkinlik")], ["stages", t("Aşamalar")], ["jobs", t("Job'lar")]];
 const isLogTab = (key) => LOG_TABS.some(([k]) => k === key);
 const enc = encodeURIComponent;
 
-function defaultTab(t) {
-  if (t.round) return "questions";
-  if (t.running) return "activity";
-  if (t.status === "awaiting-approval") return "plan";
-  if (t.status === "new") return "ticket";
+function defaultTab(tk) {
+  if (tk.round) return "questions";
+  if (tk.running) return "activity";
+  if (tk.status === "awaiting-approval") return "plan";
+  if (tk.status === "new") return "ticket";
   return "plan";
 }
 
@@ -1763,18 +1816,18 @@ function parseTicketHash(text) {
 let pendingHighlight = null;
 
 // Open a ticket: its page, on a tab. The same ticket already open only switches the tab.
-function openDrawer(t, tab, opts) {
+function openDrawer(tk, tab, opts) {
   closeInbox();
   pendingHighlight = opts?.highlight || null;
   const want = tab === "chat" ? null : tab;
-  if (drawer && drawer.target === t.target && drawer.id === t.id && currentView() === "ticket") {
+  if (drawer && drawer.target === tk.target && drawer.id === tk.id && currentView() === "ticket") {
     if (tab === "chat") return renderChatSide(true);
     if (want) switchTab(want);
     if (pendingHighlight) { drawer.highlight = pendingHighlight; pendingHighlight = null; renderTabs(); }
     return;
   }
   ticketReturn = currentView() === "ticket" ? ticketReturn : location.hash || "#home";
-  location.hash = ticketHash(t.target, t.id, want || defaultTab(t));
+  location.hash = ticketHash(tk.target, tk.id, want || defaultTab(tk));
   if (tab === "chat") chatSeedFocus = true;
 }
 
@@ -1788,8 +1841,8 @@ function leaveTicket() {
 
 // The route opened a ticket: set up its state, paint the head from the snapshot at once, then load the detail.
 function showTicket(params) {
-  const t = rowOf(params.target, params.id);
-  const tab = params.tab || (t ? defaultTab(t) : "plan");
+  const tk = rowOf(params.target, params.id);
+  const tab = params.tab || (tk ? defaultTab(tk) : "plan");
   if (drawer && drawer.target === params.target && drawer.id === params.id) {
     if (tab !== drawer.tab && !(tab === "changes" && drawer.tab === "changes")) switchTab(tab);
     return;
@@ -1800,13 +1853,13 @@ function showTicket(params) {
   pendingHighlight = null;
   $("drawer").hidden = false;
   $("d-crumb").textContent = params.id;
-  $("d-back").textContent = ticketReturn.startsWith("#home") ? "Komuta" : ticketReturn.startsWith("#project") ? "Proje" : "Ticket'lar";
+  $("d-back").textContent = ticketReturn.startsWith("#home") ? t("Komuta") : ticketReturn.startsWith("#project") ? t("Proje") : t("Ticket'lar");
   $("d-back").href = ticketReturn.startsWith("#ticket/") ? "#tickets" : ticketReturn;
-  $("d-title").textContent = t ? t.title : params.id;
+  $("d-title").textContent = tk ? tk.title : params.id;
   $("d-body").replaceChildren(h("div", { class: "skeleton" }, h("span"), h("span"), h("span")));
   $("d-tabs").replaceChildren();
   $("d-subtabs").hidden = true;
-  if (t) { markSeen(t); refreshDrawerHead(); }
+  if (tk) { markSeen(tk); refreshDrawerHead(); }
   renderChatSide(chatSeedFocus);
   chatSeedFocus = false;
   loadDetail();
@@ -1844,66 +1897,66 @@ function drawerBusy() {
 
 // The next step, when the ticket waits on you: what it waits for, and the buttons that answer it. Only the answer is
 // promoted into the banner; cleanup, stop and the other buttons stay in the page head, as they were before Volt.
-function renderNextStep(t) {
-  const n = t.needs_you;
+function renderNextStep(tk) {
+  const n = tk.needs_you;
   const box = $("d-next");
-  const all = actionButtons(t, false).filter(Boolean);
-  const lead = n ? nextStepLead(t, n, all) : [];
+  const all = actionButtons(tk, false).filter(Boolean);
+  const lead = n ? nextStepLead(tk, n, all) : [];
   const leadLabels = new Set(lead.map((el) => el.textContent));
   $("d-actions").replaceChildren(...all.filter((el) => !lead.includes(el) && !leadLabels.has(el.textContent)));
   if (!n) {
     box.hidden = true;
     return;
   }
-  if (n.dismissable) lead.push(dismissButton(t, n, ""));
+  if (n.dismissable) lead.push(dismissButton(tk, n, ""));
   box.hidden = false;
   box.replaceChildren(
     h("div", { class: "next-text" },
-      h("span", { class: "next-kicker" }, h("span", { class: "dot" }), "Sıradaki hamle senin"),
-      h("div", { class: "next-title" }, n.kind === "stall" ? n.title : NEED_TITLE[n.kind] || n.title || "Seni bekliyor"),
-      n.details && !(n.kind === "approval" && gateReasonIsRating(n.details)) ? h("div", { class: "next-detail" }, n.details.split("\n")[0]) : ""),
+      h("span", { class: "next-kicker" }, h("span", { class: "dot" }), t("Sıradaki hamle senin")),
+      h("div", { class: "next-title" }, n.kind === "stall" ? t(n.title) : NEED_TITLE[n.kind] || t(n.title) || t("Seni bekliyor")),
+      n.details && !(n.kind === "approval" && gateReasonIsRating(n.details)) ? h("div", { class: "next-detail" }, t(n.details.split("\n")[0])) : ""),
     lead.length ? h("div", { class: "row next-actions" }, lead) : "");
 }
 
 // The banner's buttons per kind, the same next step the board card offers; otherwise the head's buttons minus the
 // destructive or incidental ones (Temizle, Durdur: danger and ghost).
-function nextStepLead(t, n, all) {
+function nextStepLead(tk, n, all) {
   if (n.kind === "pr-feedback") {
-    return [h("a", { class: "button primary", href: ReviewPage.hash(t.target, t.id, null, null, "github") }, icon("diff"), "Geri bildirime bak"),
-      t.pr ? h("a", { class: "button", href: t.pr, target: "_blank", rel: "noopener noreferrer" }, icon("pr"), "PR'ı aç", icon("external")) : ""].filter(Boolean);
+    return [h("a", { class: "button primary", href: ReviewPage.hash(tk.target, tk.id, null, null, "github") }, icon("diff"), t("Geri bildirime bak")),
+      tk.pr ? h("a", { class: "button", href: tk.pr, target: "_blank", rel: "noopener noreferrer" }, icon("pr"), t("PR'ı aç"), icon("external")) : ""].filter(Boolean);
   }
-  if (["quiet", "stall"].includes(n.kind)) return [h("button", { class: "primary", onclick: () => nudgeDialog(t) }, icon("message"), "Yönlendir")];
+  if (["quiet", "stall"].includes(n.kind)) return [h("button", { class: "primary", onclick: () => nudgeDialog(tk) }, icon("message"), t("Yönlendir"))];
   if (n.kind === "blocked") {
-    return (n.waiting_for || []).map((d) => rowOf(t.target, d.id)).filter(Boolean)
-      .map((dep, i) => h("button", { class: i ? "" : "primary", onclick: () => openDrawer(dep) }, icon("ticket"), `${dep.id} aç`));
+    return (n.waiting_for || []).map((d) => rowOf(tk.target, d.id)).filter(Boolean)
+      .map((dep, i) => h("button", { class: i ? "" : "primary", onclick: () => openDrawer(dep) }, icon("ticket"), t("{0} aç", dep.id)));
   }
-  if (n.kind === "start") return [h("button", { class: "primary", onclick: () => act(t, "run") }, icon("play"), "Başlat")];
-  if (n.kind === "protected" && n.patch) return protectedButtons(t, n.patch);
+  if (n.kind === "start") return [h("button", { class: "primary", onclick: () => act(tk, "run") }, icon("play"), t("Başlat"))];
+  if (n.kind === "protected" && n.patch) return protectedButtons(tk, n.patch);
   return all.filter((el) => !el.classList.contains("danger") && !el.classList.contains("ghost"));
 }
 
 function refreshDrawerHead() {
-  const t = rowOf(drawer.target, drawer.id);
-  if (!t) return;
-  const signature = JSON.stringify(t);
+  const tk = rowOf(drawer.target, drawer.id);
+  if (!tk) return;
+  const signature = JSON.stringify(tk);
   if (signature === drawer.headSignature) return;
   drawer.headSignature = signature;
   if (drawer.detail && !drawerBusy()) loadDetail();  // e.g. a stage just finished
-  $("d-sub").replaceChildren(h("span", { class: "id" }, t.id), typeTag(t), bmadTag(t), controlledTag(t), badge(t.status),
-    t.pipeline ? h("span", { class: "muted small" }, `${t.pipeline} hattı`) : t.legacy ? h("span", { class: "pill mute" }, "v1") : "",
-    t.running ? h("span", { class: "live-line" }, h("span", { class: "dot live" }), runLabel(t))
-      : t.status === "waiting" ? h("span", { class: "live-line" }, h("span", { class: "dot warn" }), waitText(t))
-      : t.status === "quota" ? h("span", { class: "live-line warn-text" }, h("span", { class: "dot warn" }), quotaText(t))
-      : t.status === "host" ? h("span", { class: "live-line warn-text" }, h("span", { class: "dot warn" }), HOST_TEXT) : "");
-  $("d-title").textContent = t.title;
+  $("d-sub").replaceChildren(h("span", { class: "id" }, tk.id), typeTag(tk), bmadTag(tk), controlledTag(tk), badge(tk.status),
+    tk.pipeline ? h("span", { class: "muted small" }, t("{0} hattı", tk.pipeline)) : tk.legacy ? h("span", { class: "pill mute" }, "v1") : "",
+    tk.running ? h("span", { class: "live-line" }, h("span", { class: "dot live" }), runLabel(tk))
+      : tk.status === "waiting" ? h("span", { class: "live-line" }, h("span", { class: "dot warn" }), waitText(tk))
+      : tk.status === "quota" ? h("span", { class: "live-line warn-text" }, h("span", { class: "dot warn" }), quotaText(tk))
+      : tk.status === "host" ? h("span", { class: "live-line warn-text" }, h("span", { class: "dot warn" }), HOST_TEXT) : "");
+  $("d-title").textContent = tk.title;
   $("d-meta").replaceChildren(
-    chip("box", t.target), originLink(t), chip("branch", t.branch, "mono"), chip("dollar", money(t.cost_usd)), chip("clock", ago(t.updated_at)),
-    t.risk ? h("span", { class: `pill ${RISK_PILL[t.risk] || "mute"}` }, `risk ${t.risk}`) : "", t.size ? h("span", { class: "pill mute" }, t.size) : "",
-    t.pr ? link(t.pr, chip("pr", "PR #" + t.pr.split("/").pop(), "linked")) : "",
-    t.slice && t.parent ? h("span", { class: "pill info", title: `${t.parent.title}\nTaban: ${t.base_branch}` }, `${t.parent.id} · dilim ${t.slice}`) : "",
-    t.after?.length && t.status !== "waiting" ? h("span", { class: "pill mute" }, `sonra: ${t.after.map((d) => d.id).join(", ")}`) : "");
-  $("d-pipe").replaceChildren(pipelineBar(t, false));
-  renderNextStep(t);
+    chip("box", tk.target), originLink(tk), chip("branch", tk.branch, "mono"), chip("dollar", money(tk.cost_usd)), chip("clock", ago(tk.updated_at)),
+    tk.risk ? h("span", { class: `pill ${RISK_PILL[tk.risk] || "mute"}` }, t("risk {0}", tk.risk)) : "", tk.size ? h("span", { class: "pill mute" }, tk.size) : "",
+    tk.pr ? link(tk.pr, chip("pr", "PR #" + tk.pr.split("/").pop(), "linked")) : "",
+    tk.slice && tk.parent ? h("span", { class: "pill info", title: t("{0}\nTaban: {1}", tk.parent.title, tk.base_branch) }, t("{0} · dilim {1}", tk.parent.id, tk.slice)) : "",
+    tk.after?.length && tk.status !== "waiting" ? h("span", { class: "pill mute" }, t("sonra: {0}", tk.after.map((d) => d.id).join(", "))) : "");
+  $("d-pipe").replaceChildren(pipelineBar(tk, false));
+  renderNextStep(tk);
 }
 
 async function loadDetail() {
@@ -1918,7 +1971,7 @@ async function loadDetail() {
     return;
   }
   if (drawer !== d) return;
-  if (wasLive && !d.detail.chat?.live && !onScreen($("d-chat"))) toast(`${d.id}: sohbette cevap hazır`);
+  if (wasLive && !d.detail.chat?.live && !onScreen($("d-chat"))) toast(t("{0}: sohbette cevap hazır", d.id));
   if (!$("d-chat").firstChild) renderChatSide(false);
   if (snapshot) refreshDrawerHead();
   renderTabs();
@@ -1994,9 +2047,9 @@ function sectionCards(sections, variant) {
 function renderTicket(text) {
   const parsed = MD.sections(text || "");
   return sectionCards(parsed.sections, (s) => {
-    if (s.title === "Pipeline") return { cls: "trusted", icon: "shield", tag: "pipeline yazdı · güvenilir", body: (x) => MD.blocks(x.body.replace(/^Written by the pipeline wrapper; trusted\.\s*$/m, "")) };
-    if (s.title.startsWith("Ticket")) return { cls: "untrusted", icon: "ticket", tag: "güvenilmeyen girdi", tagCls: "warn" };
-    if (s.title.startsWith("Decisions")) return { cls: "decisions", icon: "user", tag: "senin kararların" };
+    if (s.title === "Pipeline") return { cls: "trusted", icon: "shield", tag: t("pipeline yazdı · güvenilir"), body: (x) => MD.blocks(x.body.replace(/^Written by the pipeline wrapper; trusted\.\s*$/m, "")) };
+    if (s.title.startsWith("Ticket")) return { cls: "untrusted", icon: "ticket", tag: t("güvenilmeyen girdi"), tagCls: "warn" };
+    if (s.title.startsWith("Decisions")) return { cls: "decisions", icon: "user", tag: t("senin kararların") };
     return {};
   });
 }
@@ -2004,39 +2057,39 @@ function renderTicket(text) {
 // Plan: inbox/plan.md as the agents wrote it, with the task progress, the wrapper's sections
 // (your decisions, review rounds) marked, and the review's deferred findings below.
 function renderPlan(det) {
-  const t = rowOf(drawer.target, drawer.id) || det;
+  const tk = rowOf(drawer.target, drawer.id) || det;
   const head = h("div", { class: "plan-head" },
     h("span", { class: "mono small muted path-inline" }, det.plan_path || ""),
-    det.tasks?.total ? h("span", { class: "tasks-meter", title: "biten / toplam görev" },
+    det.tasks?.total ? h("span", { class: "tasks-meter", title: t("biten / toplam görev") },
       h("span", { class: "meter" }, h("span", { class: "meter-fill", style: `width:${Math.round((det.tasks.done / det.tasks.total) * 100)}%` })),
-      `görevler ${det.tasks.done}/${det.tasks.total}`) : "",
-    det.risk ? h("span", { class: `pill ${RISK_PILL[det.risk] || "mute"}` }, `risk ${det.risk}`) : "",
+      t("görevler {0}/{1}", det.tasks.done, det.tasks.total)) : "",
+    det.risk ? h("span", { class: `pill ${RISK_PILL[det.risk] || "mute"}` }, t("risk {0}", det.risk)) : "",
     det.size ? h("span", { class: "pill mute" }, det.size) : "",
     det.checks?.length ? h("span", { class: "row tight" }, det.checks.map(checkChip)) : "");
   const out = [head];
-  if (det.status === "awaiting-approval") out.push(h("div", { class: "need approval-inline wide" }, approvalBox(t, det.gate || {})));
-  if (t.children?.length) {
+  if (det.status === "awaiting-approval") out.push(h("div", { class: "need approval-inline wide" }, approvalBox(tk, det.gate || {})));
+  if (tk.children?.length) {
     out.push(h("section", { class: "section stack-box" },
-      h("div", { class: "section-title" }, icon("layers"), t.status === "split" ? "Dilimler" : `Yığın (${t.parent?.id || ""})`,
-        h("span", { class: "muted small" }, t.status === "split" ? " · bu ticket dilimlerin kabı; kendi koşusu yok" : ` · bu ticket dilim ${t.slice}, tabanı ${t.base_branch}`)),
-      sliceList(t, t.children)));
+      h("div", { class: "section-title" }, icon("layers"), tk.status === "split" ? t("Dilimler") : t("Yığın ({0})", tk.parent?.id || ""),
+        h("span", { class: "muted small" }, tk.status === "split" ? t(" · bu ticket dilimlerin kabı; kendi koşusu yok") : t(" · bu ticket dilim {0}, tabanı {1}", tk.slice, tk.base_branch))),
+      sliceList(tk, tk.children)));
   }
-  if (t.status === "waiting") out.push(h("div", { class: "need blocked" }, h("div", { class: "need-kind" }, icon("clock"), " ", waitText(t)),
-    h("div", { class: "muted small" }, t.mode === "controlled"
-      ? "Kontrollü proje: beklediği ticket'lar bitince gelen kutusu başlatmak için sorar; kendiliğinden başlamaz."
-      : "Beklediği ticket'lar bitince kendiliğinden başlar; panel her dakika ve bir ticket her bittiğinde yeniden bakar.")));
-  if (t.status === "quota") out.push(h("div", { class: "need blocked" }, h("div", { class: "need-kind" }, icon("clock"), " ", quotaText(t)),
-    h("div", { class: "muted small" }, `${quotaDetail(t)} Panel her dakika bakar; yeniden başlarsa da kaybolmaz.`)));
-  if (t.status === "host") out.push(h("div", { class: "need blocked" }, h("div", { class: "need-kind" }, icon("clock"), " ", HOST_TEXT),
-    h("div", { class: "muted small" }, `${hostDetail(t)} Panel her dakika bakar; yeniden başlarsa da kaybolmaz.`)));
+  if (tk.status === "waiting") out.push(h("div", { class: "need blocked" }, h("div", { class: "need-kind" }, icon("clock"), " ", waitText(tk)),
+    h("div", { class: "muted small" }, tk.mode === "controlled"
+      ? t("Kontrollü proje: beklediği ticket'lar bitince gelen kutusu başlatmak için sorar; kendiliğinden başlamaz.")
+      : t("Beklediği ticket'lar bitince kendiliğinden başlar; panel her dakika ve bir ticket her bittiğinde yeniden bakar."))));
+  if (tk.status === "quota") out.push(h("div", { class: "need blocked" }, h("div", { class: "need-kind" }, icon("clock"), " ", quotaText(tk)),
+    h("div", { class: "muted small" }, t("{0} Panel her dakika bakar; yeniden başlarsa da kaybolmaz.", quotaDetail(tk)))));
+  if (tk.status === "host") out.push(h("div", { class: "need blocked" }, h("div", { class: "need-kind" }, icon("clock"), " ", HOST_TEXT),
+    h("div", { class: "muted small" }, t("{0} Panel her dakika bakar; yeniden başlarsa da kaybolmaz.", hostDetail(tk)))));
   if (!det.plan_text.trim()) {
-    out.push(empty(det.legacy ? "Bu ticket eski (v1) hatta koştu; planı hedef repodaki spec dosyasında." : "Henüz plan yok. Planlama aşaması bitince burada görünür.", "spec"));
+    out.push(empty(det.legacy ? t("Bu ticket eski (v1) hatta koştu; planı hedef repodaki spec dosyasında.") : t("Henüz plan yok. Planlama aşaması bitince burada görünür."), "spec"));
   } else {
     const parsed = MD.sections(det.plan_text);
     if (parsed.intro.trim()) out.push(h("div", { class: "md plan-intro" }, MD.blocks(parsed.intro)));
     out.push(...sectionCards(parsed.sections, (s) => {
-      if (/^Decisions \(user\)/.test(s.title)) return { cls: "decisions", icon: "user", tag: "senin kararların" };
-      if (/^Review \(user/.test(s.title)) return { cls: "decisions", icon: "message", tag: "senin review'un" };
+      if (/^Decisions \(user\)/.test(s.title)) return { cls: "decisions", icon: "user", tag: t("senin kararların") };
+      if (/^Review \(user/.test(s.title)) return { cls: "decisions", icon: "message", tag: t("senin review'un") };
       if (/^Review \(codex/.test(s.title)) return { cls: "result", icon: "eye", tag: "Codex review" };
       return {};
     }));
@@ -2045,8 +2098,8 @@ function renderPlan(det) {
     const entries = det.deferred || [];
     const open = entries.filter((e) => !e.ticket).length;
     out.push(h("details", { class: "section deferred-card" },
-      h("summary", {}, h("span", { class: "section-title" }, icon("pin"), "Ertelenenler (deferred.md)"), h("span", { class: "grow" }),
-        entries.length ? h("span", { class: "muted small" }, `${entries.length} bulgu · ${open} açık`) : "", icon("chevron", "chev")),
+      h("summary", {}, h("span", { class: "section-title" }, icon("pin"), t("Ertelenenler (deferred.md)")), h("span", { class: "grow" }),
+        entries.length ? h("span", { class: "muted small" }, t("{0} bulgu · {1} açık", entries.length, open)) : "", icon("chevron", "chev")),
       entries.length
         ? h("div", { class: "section-body" }, deferredEntries(det, entries))
         : h("div", { class: "section-body md" }, MD.blocks(det.deferred_text))));
@@ -2062,24 +2115,26 @@ function deferredEntries(det, entries) {
   for (const e of entries) {
     if (e.round !== round) {
       round = e.round;
-      out.push(h("h4", { class: "deferred-round" }, round == null ? "Tur belirtilmemiş" : `Tur ${round}`));
+      out.push(h("h4", { class: "deferred-round" }, round == null ? t("Tur belirtilmemiş") : t("Tur {0}", round)));
     }
     const made = e.ticket ? rowOf(det.target, e.ticket) : null;
     out.push(h("div", { class: "deferred-entry" },
       h("div", { class: "md" }, MD.blocks(e.text)),
       h("div", { class: "deferred-act" }, e.ticket
         ? h("button", { class: "small ghost", type: "button", disabled: !made, onclick: () => made && openDrawer(made, "plan") }, `→ ${e.ticket}`)
-        : h("button", { class: "small", type: "button", title: `${e.type} ticket'ı taslağı; oluşturmadan önce düzenleyebilirsin`,
-            onclick: () => convertDeferred(det.target, det.id, e) }, "Ticket'a çevir"))));
+        : h("button", { class: "small", type: "button", title: t("{0} ticket'ı taslağı; oluşturmadan önce düzenleyebilirsin", e.type),
+            onclick: () => convertDeferred(det.target, det.id, e) }, t("Ticket'a çevir")))));
   }
   return out;
 }
 
 const PASS = /^(pass|passed|ok|success)$/i;
-const checkChip = (c) => h("span", { class: `pill ${PASS.test(c.status) ? "ok" : /^(fail|failed|error)$/i.test(c.status) ? "bad" : "mute"}`,
-  title: `${c.source === "engine" ? "pipeline çalıştırdı" : "ajan bildirdi"} · ${c.status}${c.detail ? `\n${c.detail}` : ""}` }, c.name);
+// A check that fails on the base branch too is pre-existing: amber, not sent back to the agent.
+const checkChip = (c) => h("span", { class: `pill ${PASS.test(c.status) ? "ok" : c.preexisting ? "warn" : /^(fail|failed|error)$/i.test(c.status) ? "bad" : "mute"}`,
+  title: `${c.source === "engine" ? t("pipeline çalıştırdı") : t("ajan bildirdi")} · ${c.preexisting ? t("base'de de kalıyor (önceden var)") : c.status}${c.detail ? `\n${c.detail}` : ""}` },
+  c.preexisting ? t("{0} (önceden)", c.name) : c.name);
 const VERDICT_PILL = { READY: "ok", NEEDS_USER: "warn", FAILED: "bad" };
-const STATE_TR = { running: "çalışıyor", ok: "tamam", failed: "başarısız", killed: "durduruldu", timeout: "zaman aşımı", lost: "kayıp" };
+const STATE_TR = { running: t("çalışıyor"), ok: t("tamam"), failed: t("başarısız"), killed: t("durduruldu"), timeout: t("zaman aşımı"), lost: t("kayıp") };
 
 // What the project memory gave this ticket's sessions and which entries they said they relied on.
 function memoryUse(det) {
@@ -2087,18 +2142,18 @@ function memoryUse(det) {
   if (!sessions.length) return "";
   const used = det.memory.used || [];
   return h("details", { class: "section mem-use", open: true },
-    h("summary", {}, h("span", { class: "section-title" }, icon("spec"), "Hafıza"),
-      h("span", { class: "muted small" }, used.length ? `${used.length} kayıt kullanıldı` : "kullanılan kayıt yok"),
+    h("summary", {}, h("span", { class: "section-title" }, icon("spec"), t("Hafıza")),
+      h("span", { class: "muted small" }, used.length ? plural(t("{0} kayıt kullanıldı"), used.length) : t("kullanılan kayıt yok")),
       h("span", { class: "grow" }), icon("chevron", "chev")),
     h("ul", { class: "section-body mem-use-list" }, sessions.map((s) => h("li", {},
       h("span", { class: "tag" }, s.stage),
       s.used?.length ? s.used.map((e) => h("a", { class: "mem-use-entry", href: "#memory", onclick: () => closeDrawer() }, h("span", { class: "id" }, e.id), " ", e.title))
-        : h("span", { class: "muted small" }, `${s.shown} kayıt verildi, hiçbiri kullanılmadı`)))));
+        : h("span", { class: "muted small" }, t("{0} kayıt verildi, hiçbiri kullanılmadı", s.shown))))));
 }
 
 // Stage runs, grouped per run (newest first): verdict, route, the result's summary, checks, cost.
 function renderStages(det) {
-  if (!det.stage_runs.length) return [empty("Henüz oturum yok.", "layers")];
+  if (!det.stage_runs.length) return [empty(t("Henüz oturum yok."), "layers")];
   const groups = new Map();
   for (const s of det.stage_runs) {
     const key = s.run ?? "–";
@@ -2109,7 +2164,7 @@ function renderStages(det) {
   for (const [n, runs] of [...groups.entries()].reverse()) {
     const cost = runs.reduce((a, s) => a + (s.cost_usd || 0), 0);
     out.push(h("div", { class: "run-group" },
-      h("h3", { class: "run-group-h" }, n === "–" ? "Oturumlar" : `Koşu ${n}`, h("span", { class: "muted small" }, ` · ${runs.length} oturum · ${money(cost)}`)),
+      h("h3", { class: "run-group-h" }, n === "–" ? t("Oturumlar") : t("Koşu {0}", n), h("span", { class: "muted small" }, " · " + plural(t("{0} oturum"), runs.length) + " · " + money(cost))),
       h("ol", { class: "timeline" }, runs.map(stageCard))));
   }
   out.push(
@@ -2118,19 +2173,19 @@ function renderStages(det) {
   return out;
 }
 
-const RETRY_CAUSE = { nudge: "mesajınla yönlendirildi", lost: "süreci kayboldu", quiet: "sessiz kaldı", timeout: "süresi doldu" };
-const COUNT_TR = [["important", "önemli", "bad"], ["nit", "nit", "mute"], ["pre_existing", "önceden vardı", "info"], ["unverified", "doğrulanmadı", "mute"]];
+const RETRY_CAUSE = { nudge: t("mesajınla yönlendirildi"), lost: t("süreci kayboldu"), quiet: t("sessiz kaldı"), timeout: t("süresi doldu") };
+const COUNT_TR = [["important", t("önemli"), "bad"], ["nit", "nit", "mute"], ["pre_existing", t("önceden vardı"), "info"], ["unverified", t("doğrulanmadı"), "mute"]];
 
 // How an interrupted session went on: "sessiz kaldı · yeniden denendi 1/2", or the user's nudge.
 function retryPills(p) {
   const out = [];
   if (p.retry) {
     const cause = RETRY_CAUSE[p.retry.cause] || p.retry.cause;
-    out.push(h("span", { class: "pill warn", title: p.retry.delay_s ? `${p.retry.delay_s} sn bekleyip aynı oturumda sürdü` : "aynı oturumda sürdü" },
-      icon("retry"), p.retry.n ? `${cause} · yeniden denendi ${p.retry.n}/${p.retry.max ?? "?"}` : cause));
+    out.push(h("span", { class: "pill warn", title: p.retry.delay_s ? t("{0} sn bekleyip aynı oturumda sürdü", p.retry.delay_s) : t("aynı oturumda sürdü") },
+      icon("retry"), p.retry.n ? t("{0} · yeniden denendi {1}/{2}", cause, p.retry.n, p.retry.max ?? "?") : cause));
   }
-  if (p.retry_of) out.push(h("span", { class: "pill info", title: "Yeni bir ziyaret değil: önceki oturum kaldığı yerden sürdü" }, `↻ ${p.retry_of} sürdü`));
-  if (p.retry_exhausted) out.push(h("span", { class: "pill bad" }, p.retry_exhausted));
+  if (p.retry_of) out.push(h("span", { class: "pill info", title: t("Yeni bir ziyaret değil: önceki oturum kaldığı yerden sürdü") }, t("↻ {0} sürdü", p.retry_of)));
+  if (p.retry_exhausted) out.push(h("span", { class: "pill bad" }, t(p.retry_exhausted)));
   return out;
 }
 
@@ -2151,10 +2206,10 @@ function evidence(list) {
 }
 
 // "Sor": opens the ticket's chat with a question about this, ready to edit and send.
-function askButton(t, question, label) {
+function askButton(tk, question, label) {
   if (!window.ChatView) return "";
-  return h("button", { class: "small ghost", title: "Sohbette sor (salt okunur bir oturum cevaplar)",
-    onclick: (e) => { e.stopPropagation(); ChatView.ask(rowOf(t.target, t.id) || t, question, ctx); } }, icon("message"), label || "Sor");
+  return h("button", { class: "small ghost", title: t("Sohbette sor (salt okunur bir oturum cevaplar)"),
+    onclick: (e) => { e.stopPropagation(); ChatView.ask(rowOf(tk.target, tk.id) || tk, question, ctx); } }, icon("message"), label || t("Sor"));
 }
 
 function stageCard(p) {
@@ -2167,40 +2222,40 @@ function stageCard(p) {
   for (const [kind] of Object.entries(drawer.files)) if (kind.startsWith(p.name + "/")) files.append(drawer.files[kind]);
   const fileBtn = (kind, label) => h("button", { class: "small ghost", onclick: (e) => { e.stopPropagation(); stageFile(p.name, kind, label, files); } }, label);
   const ended = p.result_error || ["failed", "lost", "timeout", "killed"].includes(p.state);
-  const question = `${p.stage} #${p.visit ?? "?"} (aşama oturumu ${p.name}, ${STATE_TR[p.state] || p.state}${p.verdict ? `, ${p.verdict}` : ""}): `
-    + (ended ? "neden böyle bitti, ne düzeltir?" : "ne yaptı, neye karar verdi ve neden?");
+  const question = t("{0} #{1} (aşama oturumu {2}, {3}{4}): ", p.stage, p.visit ?? "?", p.name, STATE_TR[p.state] || p.state, p.verdict ? `, ${p.verdict}` : "")
+    + (ended ? t("neden böyle bitti, ne düzeltir?") : t("ne yaptı, neye karar verdi ve neden?"));
   const counts = p.result?.counts || {};
   const nudge = p.nudged || p.nudge;
   return h("li", { class: `step ${tone}` + (drawer.highlight === p.name ? " row-highlight" : ""), id: `sr-${p.name}` },
     h("div", { class: "step-dot" }),
     h("div", { class: "step-body" },
       h("div", { class: "row tight wrap" },
-        h("strong", {}, p.title || p.stage), p.visit > 1 || p.max_visits > 1 ? h("span", { class: "muted small", title: "ziyaret / en çok" }, `#${p.visit ?? "?"}${p.max_visits ? `/${p.max_visits}` : ""}`) : "",
-        h("span", { class: `pill ${tone === "live" ? "info" : tone}` }, steered ? "yönlendirildi" : STATE_TR[p.state] || STATUS_TR[p.state] || p.state),
+        h("strong", {}, p.title || p.stage), p.visit > 1 || p.max_visits > 1 ? h("span", { class: "muted small", title: t("ziyaret / en çok") }, `#${p.visit ?? "?"}${p.max_visits ? `/${p.max_visits}` : ""}`) : "",
+        h("span", { class: `pill ${tone === "live" ? "info" : tone}` }, steered ? t("yönlendirildi") : STATE_TR[p.state] || STATUS_TR[p.state] || p.state),
         p.verdict ? h("span", { class: `pill ${VERDICT_PILL[p.verdict] || "mute"}` }, p.verdict) : "",
         retryPills(p),
-        p.route || p.next ? h("span", { class: "muted small", title: "rota → sıradaki adım" }, [p.route ? `rota ${p.route}` : "", p.next ? `→ ${p.next}` : ""].filter(Boolean).join(" ")) : "",
-        p.via?.from ? h("span", { class: "muted small" }, `${p.via.from}${p.via.route ? ` (${p.via.route})` : ""} sonrası`) : "",
-        h("span", { class: "grow" }), h("span", { class: "type" }, p.model || "?"), p.effort ? h("span", { class: "type", title: "efor" }, p.effort) : "",
+        p.route || p.next ? h("span", { class: "muted small", title: t("rota → sıradaki adım") }, [p.route ? t("rota {0}", p.route) : "", p.next ? `→ ${p.next}` : ""].filter(Boolean).join(" ")) : "",
+        p.via?.from ? h("span", { class: "muted small" }, t("{0}{1} sonrası", p.via.from, p.via.route ? ` (${p.via.route})` : "")) : "",
+        h("span", { class: "grow" }), h("span", { class: "type" }, p.model || "?"), p.effort ? h("span", { class: "type", title: t("efor") }, p.effort) : "",
         h("span", { class: "muted small" }, when(p.started_at))),
-      nudge?.text ? h("div", { class: "nudge-note small" }, h("span", { class: "muted" }, `${p.nudged ? "Yönlendirme" : "Mesaj"} · ${nudge.by || "?"}: `), nudge.text) : "",
+      nudge?.text ? h("div", { class: "nudge-note small" }, h("span", { class: "muted" }, `${p.nudged ? t("Yönlendirme") : t("Mesaj")} · ${nudge.by || "?"}: `), nudge.text) : "",
       COUNT_TR.some(([k]) => typeof counts[k] === "number") ? h("div", { class: "row tight wrap" },
         COUNT_TR.filter(([k]) => counts[k]).map(([k, label, cls]) => h("span", { class: `pill ${cls}` }, `${counts[k]} ${label}`)),
-        COUNT_TR.every(([k]) => !counts[k]) ? h("span", { class: "pill ok" }, "açık bulgu yok") : "") : "",
+        COUNT_TR.every(([k]) => !counts[k]) ? h("span", { class: "pill ok" }, t("açık bulgu yok")) : "") : "",
       p.summary ? h("div", { class: "md stage-summary" }, MD.blocks(p.summary)) : "",
       evidence(p.artifacts),
-      p.result_error ? h("pre", { class: "need-details" }, p.result_error) : "",
-      p.result_warnings.length ? h("div", { class: "row tight wrap" }, p.result_warnings.map((w) => h("span", { class: "pill warn" }, icon("alert"), w))) : "",
-      p.checks.length ? h("div", { class: "row tight wrap" }, h("span", { class: "muted small" }, "kontroller"), p.checks.map(checkChip)) : "",
+      p.result_error ? h("pre", { class: "need-details" }, t(p.result_error)) : "",
+      p.result_warnings.length ? h("div", { class: "row tight wrap" }, p.result_warnings.map((w) => h("span", { class: "pill warn" }, icon("alert"), t(w)))) : "",
+      p.checks.length ? h("div", { class: "row tight wrap" }, h("span", { class: "muted small" }, t("kontroller")), p.checks.map(checkChip)) : "",
       h("div", { class: "row tight wrap" },
         chip("dollar", money(p.cost_usd)),
         chip("clock", p.duration_ms ? duration(p.duration_ms / 1000) : "-"),
-        chip("message", `${p.turns ?? "-"} tur`),
-        p.remote_unchanged === true ? chip("shield", "remote'a dokunulmadı", "ok") : p.remote_unchanged === false ? chip("alert", `remote değişti: ${(p.remote_changed || []).join(", ") || "?"}`, "bad") : "",
+        chip("message", plural(t("{0} tur"), p.turns ?? "-")),
+        p.remote_unchanged === true ? chip("shield", t("remote'a dokunulmadı"), "ok") : p.remote_unchanged === false ? chip("alert", t("remote değişti: {0}", (p.remote_changed || []).join(", ") || "?"), "bad") : "",
         h("span", { class: "grow" }),
         askButton({ target: drawer.target, id: drawer.id }, question),
         h("button", { class: "small" + (open ? " on" : ""), "aria-expanded": String(open), onclick: toggle }, icon("activity"), "Transcript"),
-        fileBtn("prompt", "Prompt"), fileBtn("result", "Sonuç"), p.has_checks_log ? fileBtn("checks", "Checks log") : ""),
+        fileBtn("prompt", "Prompt"), fileBtn("result", t("Sonuç")), p.has_checks_log ? fileBtn("checks", "Checks log") : ""),
       files,
       open ? drawer.tx.el : ""));
 }
@@ -2223,50 +2278,50 @@ async function stageFile(phase, kind, label, box) {
 
 // Question rounds of every run: the open one with the answer form, answered ones with the answer.
 function renderQuestions(det) {
-  const t = rowOf(drawer.target, drawer.id) || det;
+  const tk = rowOf(drawer.target, drawer.id) || det;
   const out = [];
   if (det.status === "failed" && !det.running) {
     // After a stop or a failure the user can turn the work: the text becomes a decision and the
     // run continues where it stopped.
-    const ta = h("textarea", { rows: 3, class: "answer-box", placeholder: "Yön değiştiren not: ne farklı yapılmalı?", "aria-label": "Yön notu" });
+    const ta = h("textarea", { rows: 3, class: "answer-box", placeholder: t("Yön değiştiren not: ne farklı yapılmalı?"), "aria-label": t("Yön notu") });
     out.push(h("div", { class: "need failed wide" },
-      h("div", { class: "need-kind" }, "Koşu durdu"),
+      h("div", { class: "need-kind" }, t("Koşu durdu")),
       det.error ? h("pre", { class: "need-details" }, det.error) : "",
-      h("div", { class: "muted small" }, "Not kararlarına eklenir ve koşu kaldığı aşamadan devam eder."),
+      h("div", { class: "muted small" }, t("Not kararlarına eklenir ve koşu kaldığı aşamadan devam eder.")),
       ta,
       h("div", { class: "row" }, h("button", { class: "primary", onclick: async (e) => {
-        if (!ta.value.trim()) return toast("Önce notunu yaz", true);
+        if (!ta.value.trim()) return toast(t("Önce notunu yaz"), true);
         e.currentTarget.disabled = true;
-        if (await act(t, "answer", ta.value.trim())) ta.value = "";
-      } }, icon("message"), "Notla devam et"))));
+        if (await act(tk, "answer", ta.value.trim())) ta.value = "";
+      } }, icon("message"), t("Notla devam et")))));
   }
   if (!det.rounds.length) {
-    if (!out.length) out.push(empty("Bu ticket için soru sorulmadı.", "message"));
+    if (!out.length) out.push(empty(t("Bu ticket için soru sorulmadı."), "message"));
     return out;
   }
   const openN = det.round?.n;
   for (const r of [...det.rounds].reverse()) {
     const isOpen = r.n === openN && !r.answered_at;
-    const head = h("div", { class: "round-head" }, h("strong", {}, `Tur ${r.n}`),
-      h("span", { class: "muted small" }, `koşu ${r.run ?? "?"} · ${r.stage || "?"} · ${when(r.asked_at)}`),
-      r.answered_at ? h("span", { class: "pill ok" }, "cevaplandı") : isOpen ? h("span", { class: "pill warn" }, "seni bekliyor") : h("span", { class: "pill mute" }, "cevapsız"));
+    const head = h("div", { class: "round-head" }, h("strong", {}, t("Tur {0}", r.n)),
+      h("span", { class: "muted small" }, t("koşu {0} · {1} · {2}", r.run ?? "?", r.stage || "?", when(r.asked_at))),
+      r.answered_at ? h("span", { class: "pill ok" }, t("cevaplandı")) : isOpen ? h("span", { class: "pill warn" }, t("seni bekliyor")) : h("span", { class: "pill mute" }, t("cevapsız")));
     if (isOpen) {
-      out.push(h("article", { class: "round open" }, head, answerForm(t, r),
-        h("div", { class: "row end" }, askButton(t, `Soru turu ${r.n} için cevap vermeme yardım et: her soru için ne önerirsin ve neden? Önce koda bak.`, "Yardım iste"))));
+      out.push(h("article", { class: "round open" }, head, answerForm(tk, r),
+        h("div", { class: "row end" }, askButton(tk, t("Soru turu {0} için cevap vermeme yardım et: her soru için ne önerirsin ve neden? Önce koda bak.", r.n), t("Yardım iste")))));
       continue;
     }
     out.push(h("article", { class: "round" }, head,
-      r.intent_gap ? intentGapBox(t, r.intent_gap) : "",
+      r.intent_gap ? intentGapBox(tk, r.intent_gap) : "",
       r.context && r.context !== r.intent_gap?.summary ? h("div", { class: "answer-context md" }, MD.blocks(r.context)) : "",
       h("ol", { class: "questions" }, (r.questions || []).map((q, i) => h("li", { class: "q" },
         h("div", { class: "q-text" }, h("span", { class: "q-id" }, q.id || `Q${i + 1}`), h("div", { class: "md grow" }, MD.blocks(q.text || ""))),
         q.options?.length ? h("ul", { class: "q-options small" }, [...new Set(q.options)].map((o) => h("li", {}, o))) : "",
-        q.recommendation ? h("div", { class: "q-rec small" }, h("span", { class: "muted" }, "Önerilen: "), q.recommendation) : ""))),
+        q.recommendation ? h("div", { class: "q-rec small" }, h("span", { class: "muted" }, t("Önerilen: ")), q.recommendation) : ""))),
       r.answer !== null && r.answer !== undefined ? h("div", { class: "answer-block" },
-        h("div", { class: "muted small" }, `Cevap: ${r.by || "?"}${r.via ? ` · ${r.via}` : ""} · ${when(r.answered_at)}`),
+        h("div", { class: "muted small" }, t("Cevap: {0}{1} · {2}", r.by || "?", r.via ? ` · ${r.via}` : "", when(r.answered_at))),
         h("pre", { class: "answer-text" }, r.answer)) : ""));
   }
-  if (det.answers_md.trim()) out.push(h("details", { class: "section" }, h("summary", {}, h("span", { class: "section-title" }, icon("spec"), "answers.md (ajanların gördüğü)")),
+  if (det.answers_md.trim()) out.push(h("details", { class: "section" }, h("summary", {}, h("span", { class: "section-title" }, icon("spec"), t("answers.md (ajanların gördüğü)"))),
     h("pre", { class: "log small" }, det.answers_md)));
   return out;
 }
@@ -2277,23 +2332,23 @@ function renderQuestions(det) {
 // kept in drawer.tx and re-attached when the stage list re-renders, so tabs, open boxes and
 // scrolling survive a refresh; a live session gets new items appended every few seconds.
 
-const TX_FILTERS = [["all", "Hepsi"], ["text", "Mesajlar"], ["tool", "Komutlar"], ["error", "Hatalar"]];
+const TX_FILTERS = [["all", t("Hepsi")], ["text", t("Mesajlar")], ["tool", t("Komutlar")], ["error", t("Hatalar")]];
 
 function openTranscript(phase) {
   closeTranscript();
-  const tabs = h("div", { class: "tx-tabs", role: "tablist", "aria-label": "Ajanlar" });
+  const tabs = h("div", { class: "tx-tabs", role: "tablist", "aria-label": t("Ajanlar") });
   const panes = h("div", { class: "tx-panes" });
   const foot = h("div", { class: "tx-foot" });
   const el = h("div", { class: "tx", "data-filter": "all" },
     tabs,
-    h("div", { class: "tx-filters", role: "group", "aria-label": "Transcript filtresi" },
+    h("div", { class: "tx-filters", role: "group", "aria-label": t("Transcript filtresi") },
       TX_FILTERS.map(([key, label]) => h("button", { class: "small" + (key === "all" ? " on" : ""), "data-key": key, onclick: (e) => {
         el.dataset.filter = key;
         for (const b of e.currentTarget.parentNode.children) b.classList.toggle("on", b === e.currentTarget);
       } }, label))),
     panes, foot);
   drawer.tx = { phase, el, tabs, panes, foot, pos: 0, tools: new Map(), agents: new Map(), active: "main", loading: false };
-  addAgent(drawer.tx, "main", "Ana ajan", null);
+  addAgent(drawer.tx, "main", t("Ana ajan"), null);
   loadTranscript();
 }
 
@@ -2311,9 +2366,9 @@ function addAgent(tx, id, label, parentPane) {
   const agent = { pane, tab, status, link: null };
   if (parentPane) {
     agent.link = h("button", { class: "tx-item tx-agent-link", onclick: () => showAgent(tx, id) },
-      icon("layers"), h("span", { class: "grow" }, `↳ ${label}`), h("span", { class: "tx-link-status muted small" }, "çalışıyor"), h("span", { class: "small" }, "sekmede aç →"));
+      icon("layers"), h("span", { class: "grow" }, `↳ ${label}`), h("span", { class: "tx-link-status muted small" }, t("çalışıyor")), h("span", { class: "small" }, t("sekmede aç →")));
     parentPane.append(agent.link);
-    setAgentStatus(agent, "live", "çalışıyor");
+    setAgentStatus(agent, "live", t("çalışıyor"));
   }
   tx.agents.set(id, agent);
   tx.tabs.append(tab);
@@ -2357,12 +2412,12 @@ async function loadTranscript() {
   for (const item of r.items) addTxItem(tx, item);
   tx.pos = r.pos;
   const main = tx.agents.get("main").pane;
-  if (!main.children.length) main.append(empty(r.alive ? "Oturum başlıyor…" : "Bu oturumda kayıt yok.", "clock"));
-  if (r.legacy && r.items.length) main.prepend(h("div", { class: "muted small" }, "Bu oturum canlı olay kaydından önce koştu; yalnız son mesajı var."));
+  if (!main.children.length) main.append(empty(r.alive ? t("Oturum başlıyor…") : t("Bu oturumda kayıt yok."), "clock"));
+  if (r.legacy && r.items.length) main.prepend(h("div", { class: "muted small" }, t("Bu oturum canlı olay kaydından önce koştu; yalnız son mesajı var.")));
   tx.tabs.hidden = tx.agents.size < 2;  // no subagents: no tab bar
   tx.foot.replaceChildren(
-    r.more ? h("button", { class: "small", onclick: () => loadTranscript() }, "Devamını yükle") : "",
-    r.alive && !r.more ? h("span", { class: "live-line" }, h("span", { class: "dot live" }), "oturum sürüyor") : "");
+    r.more ? h("button", { class: "small", onclick: () => loadTranscript() }, t("Devamını yükle")) : "",
+    r.alive && !r.more ? h("span", { class: "live-line" }, h("span", { class: "dot live" }), t("oturum sürüyor")) : "");
   if (r.alive && r.items.length && atBottom && d.tab === "stages") body.scrollTop = body.scrollHeight;
   if (r.alive && !r.more) tx.timer = setTimeout(loadTranscript, 3000);
 }
@@ -2372,11 +2427,11 @@ function addTxItem(tx, item) {
   const where = (item.parent && tx.agents.get(item.parent)?.pane) || main;
   main.querySelector(":scope > .empty")?.remove();
   if (item.kind === "session") {
-    where.append(h("div", { class: "tx-item tx-session" }, icon("play"), `oturum başladı · ${item.model || "?"}`));
+    where.append(h("div", { class: "tx-item tx-session" }, icon("play"), t("oturum başladı · {0}", item.model || "?")));
   } else if (item.kind === "text") {
     where.append(h("div", { class: "tx-item tx-text" }, h("div", { class: "md" }, MD.blocks(item.text))));
   } else if (item.kind === "prompt") {
-    where.append(h("details", { class: "tx-item tx-prompt" }, h("summary", {}, icon("message"), "subagent'a verilen görev"),
+    where.append(h("details", { class: "tx-item tx-prompt" }, h("summary", {}, icon("message"), t("subagent'a verilen görev")),
       h("pre", { class: "log small" }, item.text)));
   } else if (item.kind === "tool" && ["Agent", "Task"].includes(item.name)) {
     addAgent(tx, item.id, item.description || item.input?.subagent_type || "subagent", where);
@@ -2385,7 +2440,7 @@ function addTxItem(tx, item) {
     // The subagent hands its report back through this call; its tool result only says so.
     const agent = item.parent && tx.agents.get(item.parent);
     if (agent) agent.handback = true;
-    where.append(h("div", { class: "tx-item tx-report" }, h("div", { class: "muted small" }, "subagent raporu"), h("div", { class: "md" }, MD.blocks(item.input.message))));
+    where.append(h("div", { class: "tx-item tx-report" }, h("div", { class: "muted small" }, t("subagent raporu")), h("div", { class: "md" }, MD.blocks(item.input.message))));
   } else if (item.kind === "tool") {
     const box = h("details", { class: "tx-item tx-tool" },
       h("summary", {}, h("span", { class: "mono" }, item.summary || item.name)),
@@ -2395,25 +2450,25 @@ function addTxItem(tx, item) {
   } else if (item.kind === "result") {
     const agent = tx.agents.get(item.tool_id);
     if (agent) {  // a subagent's final report closes its tab
-      setAgentStatus(agent, item.is_error ? "bad" : "ok", item.is_error ? "hata" : "bitti");
+      setAgentStatus(agent, item.is_error ? "bad" : "ok", item.is_error ? t("hata") : t("bitti"));
       if (agent.handback && !item.is_error) return;  // the report is already in its tab
-      agent.pane.append(h("div", { class: "tx-item tx-report" + (item.is_error ? " bad" : "") }, h("div", { class: "muted small" }, "subagent raporu"), h("div", { class: "md" }, MD.blocks(item.content))));
+      agent.pane.append(h("div", { class: "tx-item tx-report" + (item.is_error ? " bad" : "") }, h("div", { class: "muted small" }, t("subagent raporu")), h("div", { class: "md" }, MD.blocks(item.content))));
       if (item.is_error) agent.link?.classList.add("error");
       return;
     }
     const owner = tx.tools.get(item.tool_id);
     const out = h("div", { class: "tx-result" + (item.is_error ? " bad" : "") },
-      h("div", { class: "muted small" }, item.is_error ? "hata" : "sonuç", item.truncated ? " · 16 KB'de kesildi" : ""),
-      h("pre", { class: "log small" }, item.content || "(boş)"));
+      h("div", { class: "muted small" }, item.is_error ? t("hata") : t("sonuç"), item.truncated ? t(" · 16 KB'de kesildi") : ""),
+      h("pre", { class: "log small" }, item.content || t("(boş)")));
     if (owner) {
       owner.append(out);
       if (item.is_error) owner.classList.add("error");
     } else where.append(out);
   } else if (item.kind === "task") {
-    where.append(h("div", { class: "tx-item tx-session" }, icon("terminal"), `arka plan ${item.status}: ${item.summary}`));
+    where.append(h("div", { class: "tx-item tx-session" }, icon("terminal"), t("arka plan {0}: {1}", item.status, item.summary)));
   } else if (item.kind === "end") {
     where.append(h("div", { class: "tx-item tx-end" + (item.is_error ? " bad" : "") },
-      h("div", { class: "row tight" }, icon(item.is_error ? "alert" : "check"), h("strong", {}, "oturum bitti"), chip("dollar", money(item.cost)), chip("message", `${item.turns ?? "-"} tur`)),
+      h("div", { class: "row tight" }, icon(item.is_error ? "alert" : "check"), h("strong", {}, t("oturum bitti")), chip("dollar", money(item.cost)), chip("message", plural(t("{0} tur"), item.turns ?? "-"))),
       item.text ? h("div", { class: "md" }, MD.blocks(item.text)) : ""));
   }
 }
@@ -2431,13 +2486,13 @@ function toolInput(item) {
 }
 
 function renderJobs(jobs) {
-  if (!jobs.length) return [empty("Panelden başlatılmış job yok.", "terminal")];
+  if (!jobs.length) return [empty(t("Panelden başlatılmış job yok."), "terminal")];
   return [h("ol", { class: "timeline" }, jobs.slice().reverse().map((j) => {
     const state = j.state === "running" ? "live" : j.state === "ok" ? "ok" : "bad";
     return h("li", { class: `step ${state}` }, h("div", { class: "step-dot" }),
       h("div", { class: "step-body" },
         h("div", { class: "row tight" }, h("strong", { class: "mono" }, j.command),
-          h("span", { class: `pill ${state === "ok" ? "ok" : state === "live" ? "info" : "bad"}` }, j.state + (j.exit !== null ? ` · çıkış ${j.exit}` : "")),
+          h("span", { class: `pill ${state === "ok" ? "ok" : state === "live" ? "info" : "bad"}` }, j.state + (j.exit !== null ? t(" · çıkış {0}", j.exit) : "")),
           h("span", { class: "grow" }), h("span", { class: "muted small" }, when(j.started_at))),
         j.tail ? h("pre", { class: "log small" }, j.tail) : ""));
   }))];
@@ -2446,30 +2501,30 @@ function renderJobs(jobs) {
 // --- Codex reviews --------------------------------------------------------------------------------
 
 function renderReviews(det) {
-  const t = { target: drawer.target, id: drawer.id, pr: det.pr, branch: det.branch, base_branch: det.base_branch };
+  const tk = { target: drawer.target, id: drawer.id, pr: det.pr, branch: det.branch, base_branch: det.base_branch };
   const head = h("div", { class: "row" },
-    det.status === "done" ? h("button", { class: "primary", onclick: () => act(t, "review") }, icon("eye"), det.reviews.length ? "Yeniden review" : "Codex review başlat") : "",
-    h("span", { class: "muted small" }, `Codex, dalı ${det.base_branch}'e göre inceler; dosyaları değiştirmez.`));
-  if (!det.reviews.length) return [head, empty("Henüz review yok.", "eye")];
+    det.status === "done" ? h("button", { class: "primary", onclick: () => act(tk, "review") }, icon("eye"), det.reviews.length ? t("Yeniden review") : t("Codex review başlat")) : "",
+    h("span", { class: "muted small" }, t("Codex, dalı {0}'e göre inceler; dosyaları değiştirmez.", det.base_branch)));
+  if (!det.reviews.length) return [head, empty(t("Henüz review yok."), "eye")];
   return [head, ...det.reviews.map((r, i) => {
     const pills = [
-      h("span", { class: `pill ${r.state === "ok" ? "ok" : r.state === "running" ? "info" : "bad"}` }, r.state === "running" ? "sürüyor" : r.state === "ok" ? "bitti" : "hata"),
+      h("span", { class: `pill ${r.state === "ok" ? "ok" : r.state === "running" ? "info" : "bad"}` }, r.state === "running" ? t("sürüyor") : r.state === "ok" ? t("bitti") : t("hata")),
       r.head ? chip("branch", r.head.slice(0, 7), "mono") : "",
-      r.stale ? h("span", { class: "pill warn" }, "eski: dal sonra değişti") : "",
-      r.posted_at ? h("span", { class: "pill ok" }, icon("pr"), "PR'da") : "",
-      r.findings?.length ? h("span", { class: "pill warn" }, `${r.findings.length} bulgu`) : "",
+      r.stale ? h("span", { class: "pill warn" }, t("eski: dal sonra değişti")) : "",
+      r.posted_at ? h("span", { class: "pill ok" }, icon("pr"), t("PR'da")) : "",
+      r.findings?.length ? h("span", { class: "pill warn" }, plural(t("{0} bulgu"), r.findings.length)) : "",
     ];
     const canPost = r.state === "ok" && det.pr && !r.posted_at && r.head && r.head === det.published_head;
     const actions = [];
     if (canPost) actions.push(h("button", { onclick: async () => {
-      if (await confirmBox(`Bu review ${det.pr} PR'ına yorum olarak eklensin mi?`)) act(t, "post_review", r.id);
-    } }, icon("pr"), "PR'a yorum ekle"));
+      if (await confirmBox(t("Bu review {0} PR'ına yorum olarak eklensin mi?", det.pr))) act(tk, "post_review", r.id);
+    } }, icon("pr"), t("PR'a yorum ekle")));
     const box = h("div", { class: "fix-box" });
-    if (r.state === "ok" && det.status === "done" && !det.legacy && !r.stale && r.findings?.length) actions.push(h("button", { class: "primary", onclick: () => openFix(t, r, box) }, icon("hammer"), "Bulguları düzelttir"));
+    if (r.state === "ok" && det.status === "done" && !det.legacy && !r.stale && r.findings?.length) actions.push(h("button", { class: "primary", onclick: () => openFix(tk, r, box) }, icon("hammer"), t("Bulguları düzelttir")));
     return h("div", { class: "section review-card" + (i ? "" : " latest") },
       h("div", { class: "review-head" }, h("strong", {}, when(r.started_at)), ...pills, h("span", { class: "grow" }), ...actions),
-      r.state === "error" ? h("pre", { class: "need-details" }, r.stderr_tail || "codex hata verdi") : "",
-      r.text ? h("div", { class: "section-body md" }, MD.blocks(r.text)) : r.state === "running" ? empty("Codex inceliyor…", "clock") : "",
+      r.state === "error" ? h("pre", { class: "need-details" }, r.stderr_tail || t("codex hata verdi")) : "",
+      r.text ? h("div", { class: "section-body md" }, MD.blocks(r.text)) : r.state === "running" ? empty(t("Codex inceliyor…"), "clock") : "",
       box);
   })];
 }
@@ -2483,10 +2538,10 @@ function finding(f) {
   return `- ${head || (f.text || "").trim()}${body.trim() ? "\n" + body : ""}`;
 }
 
-function openFix(t, r, box) {
+function openFix(tk, r, box) {
   const kept = new Map(r.findings.map((f) => [f, true]));
   box.replaceChildren(
-    h("div", { class: "muted small" }, "Düzeltilmesini istemediklerinin işaretini kaldır. Kalanlar plana görev olarak eklenir ve düzeltme koşusu başlar; bitince PR'ı güncellemen istenir."),
+    h("div", { class: "muted small" }, t("Düzeltilmesini istemediklerinin işaretini kaldır. Kalanlar plana görev olarak eklenir ve düzeltme koşusu başlar; bitince PR'ı güncellemen istenir.")),
     h("ul", { class: "checks" }, r.findings.map((f) => {
       const cb = h("input", { type: "checkbox", onchange: () => kept.set(f, cb.checked) });
       cb.checked = true;
@@ -2495,13 +2550,13 @@ function openFix(t, r, box) {
         h("span", {}, f.title || f.text), f.location ? h("span", { class: "muted small mono" }, f.location) : ""));
     })),
     h("div", { class: "row end" },
-      h("button", { class: "ghost", onclick: () => box.replaceChildren() }, "Vazgeç"),
+      h("button", { class: "ghost", onclick: () => box.replaceChildren() }, t("Vazgeç")),
       h("button", { class: "primary", onclick: async () => {
         const chosen = r.findings.filter((f) => kept.get(f));
-        if (!chosen.length) return toast("Düzeltilecek bulgu kalmadı", true);
-        if (!(await confirmBox(`${t.id}: ${chosen.length} bulgu plana görev olarak eklensin ve düzeltme koşusu başlasın mı?\nBirkaç dolar tutabilir; sonra PR'ı güncellemen istenir.`))) return;
-        if (await act(t, "fix", chosen.map(finding).join("\n"), { review: r.id })) box.replaceChildren();
-      } }, icon("hammer"), `Gönder ve koştur`)));
+        if (!chosen.length) return toast(t("Düzeltilecek bulgu kalmadı"), true);
+        if (!(await confirmBox(t("{0}: {1} bulgu plana görev olarak eklensin ve düzeltme koşusu başlasın mı?\nBirkaç dolar tutabilir; sonra PR'ı güncellemen istenir.", tk.id, chosen.length)))) return;
+        if (await act(tk, "fix", chosen.map(finding).join("\n"), { review: r.id })) box.replaceChildren();
+      } }, icon("hammer"), t("Gönder ve koştur"))));
 }
 
 // --- activity -----------------------------------------------------------------------------------
@@ -2524,15 +2579,15 @@ function logLine(line) {
 
 function renderActivity() {
   const d = drawer;
-  const select = h("select", { "aria-label": "Oturum", onchange: (e) => { d.phase = e.target.value || null; d.follow = !e.target.value; d.offset = 0; renderActivity(); } },
-    h("option", { value: "" }, "en yeni oturum (takip et)"));
+  const select = h("select", { "aria-label": t("Oturum"), onchange: (e) => { d.phase = e.target.value || null; d.follow = !e.target.value; d.offset = 0; renderActivity(); } },
+    h("option", { value: "" }, t("en yeni oturum (takip et)")));
   const allBox = h("input", { type: "checkbox", onchange: (e) => { d.all = e.target.checked; d.offset = 0; renderActivity(); } });
   allBox.checked = d.all;
   const log = h("div", { class: "log", id: "activity-log" });
   const legend = h("div", { class: "legend muted small" },
-    h("span", { class: "ll cmd" }, "$ komut"), h("span", { class: "ll edit" }, "edit dosya"), h("span", { class: "ll agent" }, "alt-ajan"),
-    h("span", { class: "ll say" }, "» ajan"), h("span", { class: "ll err" }, "! hata"));
-  $("d-body").replaceChildren(h("div", { class: "row" }, select, h("label", { class: "check" }, allBox, " her şey (okumalar, alt-ajan içi)"), h("span", { class: "grow" }), legend), log);
+    h("span", { class: "ll cmd" }, t("$ komut")), h("span", { class: "ll edit" }, t("edit dosya")), h("span", { class: "ll agent" }, t("alt-ajan")),
+    h("span", { class: "ll say" }, t("» ajan")), h("span", { class: "ll err" }, t("! hata")));
+  $("d-body").replaceChildren(h("div", { class: "row" }, select, h("label", { class: "check" }, allBox, t(" her şey (okumalar, alt-ajan içi)")), h("span", { class: "grow" }), legend), log);
   clearTimeout(d.timer);
   // A poll still in flight from the previous view must not touch this one's offset or log.
   d.gen = (d.gen || 0) + 1;
@@ -2551,7 +2606,7 @@ async function pollActivity(select, log, gen) {
     if (!current()) return;
     if (select.options.length - 1 !== a.phases.length) {
       const keep = d.phase || "";
-      select.replaceChildren(h("option", { value: "" }, "en yeni oturum (takip et)"), ...a.phases.map((p) => h("option", { value: p }, p)));
+      select.replaceChildren(h("option", { value: "" }, t("en yeni oturum (takip et)")), ...a.phases.map((p) => h("option", { value: p }, p)));
       select.value = keep;
     }
     if (d.follow && a.phase && d.shownPhase && d.shownPhase !== a.phase) {
@@ -2563,7 +2618,7 @@ async function pollActivity(select, log, gen) {
     const atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 40;
     for (const line of a.lines) log.append(logLine(line));
     if (a.footer && !log.querySelector(".end")) log.append(h("div", { class: "ll phase end" }, a.footer));
-    if (!a.phases.length) log.replaceChildren(empty("Henüz oturum yok (koşu hazırlanıyor olabilir).", "clock"));
+    if (!a.phases.length) log.replaceChildren(empty(t("Henüz oturum yok (koşu hazırlanıyor olabilir)."), "clock"));
     d.offset = a.offset;
     if (atBottom) log.scrollTop = log.scrollHeight;
   } catch (e) {
@@ -2581,7 +2636,7 @@ $("toggle-onboard").addEventListener("click", async () => {
   $("onboard").hidden = !$("onboard").hidden;
   if ($("onboard").hidden) return;
   $("detect-path").focus();
-  $("repo-list").replaceChildren(h("p", { class: "muted small" }, "repolar aranıyor…"));
+  $("repo-list").replaceChildren(h("p", { class: "muted small" }, t("repolar aranıyor…")));
   try {
     candidates = (await api("/api/targets/candidates")).candidates;
   } catch (e) {
@@ -2596,15 +2651,15 @@ function renderCandidates() {
   const shown = candidates.filter((c) => !q || c.name.toLowerCase().includes(q) || c.path.toLowerCase().includes(q));
   if (!candidates.length) { $("repo-list").replaceChildren(); return; }
   $("repo-list").replaceChildren(
-    h("div", { class: "muted small" }, `~/Developer altındaki repolar (${shown.length}/${candidates.length}) · birini seç ya da yolu yaz`),
+    h("div", { class: "muted small" }, t("~/Developer altındaki repolar ({0}/{1}) · birini seç ya da yolu yaz", shown.length, candidates.length)),
     h("div", { class: "repos" }, shown.map((c) => h("button", {
       type: "button", class: "repo" + (c.target ? " added" : ""), disabled: !!c.target, title: c.path,
       onclick: () => { $("detect-path").value = c.path; detect(); },
     },
       icon(c.target ? "check" : "folder"), h("span", { class: "repo-name" }, c.name),
-      c.target ? h("span", { class: "pill ok" }, "eklendi") : "",
+      c.target ? h("span", { class: "pill ok" }, t("eklendi")) : "",
       !c.target && c.project_doc ? h("span", { class: "pill info" }, "PROJECT.md") : "",
-      !c.target && !c.remote ? h("span", { class: "pill warn" }, "remote yok") : "")),
+      !c.target && !c.remote ? h("span", { class: "pill warn" }, t("remote yok")) : "")),
     ),
   );
 }
@@ -2612,8 +2667,8 @@ function renderCandidates() {
 // The form's model: the detected spec fields, the proposal's lines (each {…, why, source, verify}) and the background
 // job (agent and/or verification) whose result replaces the lines when it ends. Nothing is saved before "Config'e ekle".
 const ob = { found: null, spec: null, proposal: null, request: null, view: null, timer: null, gen: 0, prUrl: null };
-const OB_PHASE = { queued: "sırada", start: "başlıyor", agent: "ajan inceliyor", verify: "deneniyor", repair: "ajan onarıyor",
-  "verify-again": "yeniden deneniyor", done: "bitti" };
+const OB_PHASE = { queued: t("sırada"), start: t("başlıyor"), agent: t("ajan inceliyor"), verify: t("deneniyor"), repair: t("ajan onarıyor"),
+  "verify-again": t("yeniden deneniyor"), done: t("bitti") };
 
 async function detect() {
   const out = $("onboard-result");
@@ -2622,7 +2677,7 @@ async function detect() {
   ob.request = null;
   ob.view = null;
   ob.prUrl = null;
-  out.replaceChildren(h("p", { class: "muted" }, "inceleniyor…"));
+  out.replaceChildren(h("p", { class: "muted" }, t("inceleniyor…")));
   let found;
   try {
     found = await api("/api/targets/detect", { path: $("detect-path").value });
@@ -2642,9 +2697,9 @@ $("detect-path").addEventListener("input", renderCandidates);
 $("detect-form").addEventListener("submit", (e) => { e.preventDefault(); detect(); });
 
 function verifyBadge(v) {
-  if (v && v.status === "pass") return h("span", { class: "pill ok ob-badge", title: v.reason || "" }, icon("check"), v.seconds != null ? `denendi · ${Math.round(v.seconds)} sn` : "denendi");
-  if (v && v.status === "fail") return h("span", { class: "pill bad ob-badge", title: v.reason }, icon("alert"), `geçmedi: ${v.reason || "hata"}`);
-  return h("span", { class: "pill mute ob-badge", title: (v && v.reason) || "" }, "denenmedi");
+  if (v && v.status === "pass") return h("span", { class: "pill ok ob-badge", title: v.reason || "" }, icon("check"), v.seconds != null ? t("denendi · {0} sn", Math.round(v.seconds)) : t("denendi"));
+  if (v && v.status === "fail") return h("span", { class: "pill bad ob-badge", title: v.reason }, icon("alert"), t("geçmedi: {0}", v.reason || t("hata")));
+  return h("span", { class: "pill mute ob-badge", title: (v && v.reason) || "" }, t("denenmedi"));
 }
 
 // One line of the proposal: its inputs (editing one drops its badge: the line is no longer what was tried), the badge,
@@ -2663,47 +2718,47 @@ function obLine(kind, item, index) {
     }
   };
   const inputs = kind === "prepare"
-    ? [h("input", { class: "grow mono", value: item.run, "aria-label": "prepare komutu", oninput: edit("run") })]
+    ? [h("input", { class: "grow mono", value: item.run, "aria-label": t("prepare komutu"), oninput: edit("run") })]
     : kind === "env"
-      ? [h("input", { class: "mono ob-key", value: item.key, "aria-label": "değişken", oninput: edit("key") }),
-         h("input", { class: "grow mono", value: item.value, "aria-label": "değer", oninput: edit("value") })]
-      : [h("input", { class: "mono ob-key", value: item.name, "aria-label": "kontrol adı", oninput: edit("name") }),
-         h("input", { class: "grow mono", value: item.run, "aria-label": "kontrol komutu", oninput: edit("run") })];
+      ? [h("input", { class: "mono ob-key", value: item.key, "aria-label": t("değişken"), oninput: edit("key") }),
+         h("input", { class: "grow mono", value: item.value, "aria-label": t("değer"), oninput: edit("value") })]
+      : [h("input", { class: "mono ob-key", value: item.name, "aria-label": t("kontrol adı"), oninput: edit("name") }),
+         h("input", { class: "grow mono", value: item.run, "aria-label": t("kontrol komutu"), oninput: edit("run") })];
   return h("div", { class: "ob-line" },
     h("div", { class: "row tight" }, ...inputs, badgeEl,
-      h("button", { type: "button", class: "small ghost", title: "satırı sil", onclick: () => { ob.proposal[kind].splice(index, 1); renderOnboard(); } }, icon("x"))),
+      h("button", { type: "button", class: "small ghost", title: t("satırı sil"), onclick: () => { ob.proposal[kind].splice(index, 1); renderOnboard(); } }, icon("x"))),
     h("div", { class: "ob-why muted small" },
-      item.source === "agent" ? h("span", { class: "pill info" }, "ajan") : item.source === "user" ? h("span", { class: "pill" }, "elle") : "",
-      item.suggested ? h("span", { class: "pill warn" }, "öneri · sahte değer") : "",
+      item.source === "agent" ? h("span", { class: "pill info" }, t("ajan")) : item.source === "user" ? h("span", { class: "pill" }, t("elle")) : "",
+      item.suggested ? h("span", { class: "pill warn" }, t("öneri · sahte değer")) : "",
       item.why ? h("span", {}, item.why) : ""),
-    v && v.left_files && v.left_files.length ? h("div", { class: "warn-text small" }, `bıraktığı dosyalar silindi: ${v.left_files.join(", ")}`) : "",
-    v && v.status === "fail" && v.tail ? h("details", { class: "ob-tail" }, h("summary", { class: "small muted" }, "çıktı"), h("pre", {}, v.tail)) : "",
+    v && v.left_files && v.left_files.length ? h("div", { class: "warn-text small" }, t("bıraktığı dosyalar silindi: {0}", v.left_files.join(", "))) : "",
+    v && v.status === "fail" && v.tail ? h("details", { class: "ob-tail" }, h("summary", { class: "small muted" }, t("çıktı")), h("pre", {}, v.tail)) : "",
   );
 }
 
 function obSection(kind, title, blank) {
   return h("div", { class: "ob-section" },
     h("div", { class: "row" }, h("h3", { class: "grow" }, title),
-      h("button", { type: "button", class: "small ghost", onclick: () => { ob.proposal[kind].push({ ...blank, why: "", source: "user" }); renderOnboard(); } }, icon("plus"), "satır")),
-    ob.proposal[kind].length ? ob.proposal[kind].map((item, i) => obLine(kind, item, i)) : h("p", { class: "muted small" }, "yok"));
+      h("button", { type: "button", class: "small ghost", onclick: () => { ob.proposal[kind].push({ ...blank, why: "", source: "user" }); renderOnboard(); } }, icon("plus"), t("satır"))),
+    ob.proposal[kind].length ? ob.proposal[kind].map((item, i) => obLine(kind, item, i)) : h("p", { class: "muted small" }, t("yok")));
 }
 
 function obJobStatus() {
   const v = ob.view;
   if (!ob.request && !v) return "";
-  if (!v) return h("p", { class: "muted small" }, "başlatılıyor…");
+  if (!v) return h("p", { class: "muted small" }, t("başlatılıyor…"));
   const parts = [];
   if (v.running || (v.phase && v.phase !== "done")) {
     parts.push(h("div", { class: "row tight" }, h("span", { class: "pill info" }, icon("clock"), OB_PHASE[v.phase] || v.phase), h("span", { class: "muted small" }, v.message || "")));
     for (const line of v.live_lines || []) parts.push(h("div", { class: "ll small mono" }, line));
   }
-  if (v.lost) parts.push(h("p", { class: "error-banner small" }, `iş yarıda kaldı: ${(v.job && v.job.tail) || "çıktı yok"}`));
-  if (v.error) parts.push(h("p", { class: "error-banner small" }, v.error));
+  if (v.lost) parts.push(h("p", { class: "error-banner small" }, t("iş yarıda kaldı: {0}", (v.job && v.job.tail) || t("çıktı yok"))));
+  if (v.error) parts.push(h("p", { class: "error-banner small" }, t(v.error)));
   if (v.phase === "done" && v.summary) {
     const s = v.summary;
     parts.push(h("p", { class: s.ok ? "small" : "warn-text small" },
-      s.error ? `doğrulama yapılamadı: ${s.error}` : s.ok ? `hepsi denendi, geçti (${Math.round(s.seconds)} sn)` : `${s.failures.length} satır geçmedi (${Math.round(s.seconds)} sn)`,
-      v.cost_usd ? ` · ajan maliyeti ${money(v.cost_usd)}` : ""));
+      s.error ? t("doğrulama yapılamadı: {0}", s.error) : s.ok ? t("hepsi denendi, geçti ({0} sn)", Math.round(s.seconds)) : t("{0} satır geçmedi ({1} sn)", s.failures.length, Math.round(s.seconds)),
+      v.cost_usd ? t(" · ajan maliyeti {0}", money(v.cost_usd)) : ""));
   }
   return h("div", { class: "ob-job" }, parts);
 }
@@ -2761,14 +2816,14 @@ async function openAgentsPr(text) {
   const s = ob.spec;
   const company = ob.found.company;
   const question = company
-    ? `DİKKAT: ${s.path} bir ŞİRKET reposu.\n${s.github_repo} reposunda, ${s.gh_user} hesabıyla, ${s.base_branch} üzerine AGENTS.md için draft PR açılsın mı?`
-    : `${s.github_repo} reposunda ${s.base_branch} üzerine AGENTS.md için draft PR açılsın mı? (geçici worktree'de docs/agents-md dalı)`;
+    ? t("DİKKAT: {0} bir ŞİRKET reposu.\n{1} reposunda, {2} hesabıyla, {3} üzerine AGENTS.md için draft PR açılsın mı?", s.path, s.github_repo, s.gh_user, s.base_branch)
+    : t("{0} reposunda {1} üzerine AGENTS.md için draft PR açılsın mı? (geçici worktree'de docs/agents-md dalı)", s.github_repo, s.base_branch);
   if (!(await confirmBox(question))) return;
   try {
     const r = await api("/api/onboard/agents-md", { path: s.path, text, gh_user: s.gh_user, github_repo: s.github_repo, base_branch: s.base_branch,
       company_confirmed: company === true });
     ob.prUrl = r.url;
-    toast(`draft PR açıldı: ${r.url}`);
+    toast(t("draft PR açıldı: {0}", r.url));
     renderOnboard();
   } catch (err) {
     toast(err.message, true);
@@ -2781,14 +2836,14 @@ function renderOnboard() {
   const busy = !!ob.request;
   const field = (key) => h("input", { id: `ob-${key}`, value: s[key] || "", oninput: (e) => { s[key] = e.target.value; } });
   const checks = h("ul", { class: "checks" }, ...found.checks.map((c) => h("li", { class: c.ok ? "ok" : c.blocking ? "bad" : "warn" },
-    icon(c.ok ? "check" : "alert"), h("div", {}, h("div", {}, c.message), c.fix ? h("div", { class: "fix" }, c.fix) : ""))));
+    icon(c.ok ? "check" : "alert"), h("div", {}, h("div", {}, t(c.message)), c.fix ? h("div", { class: "fix" }, t(c.fix)) : ""))));
   const add = h("button", {
     class: "primary", onclick: async () => {
       const spec = collectSpec();
-      if (!(await confirmBox(`[targets.${spec.name}] config dosyasının sonuna eklensin mi?\nÖnce yedek alınır.`))) return;
+      if (!(await confirmBox(t("[targets.{0}] config dosyasının sonuna eklensin mi?\nÖnce yedek alınır.", spec.name)))) return;
       try {
         const r = await api("/api/targets", { spec });
-        toast(`${r.added} eklendi · yedek: ${r.backup}`);
+        toast(t("{0} eklendi · yedek: {1}", r.added, r.backup));
         ob.gen += 1;
         clearTimeout(ob.timer);
         $("onboard-result").replaceChildren();
@@ -2798,46 +2853,46 @@ function renderOnboard() {
         toast(err.message, true);
       }
     },
-  }, icon("plus"), "Config'e ekle");
+  }, icon("plus"), t("Config'e ekle"));
   if (!found.can_add) add.disabled = true;
-  const agentBtn = h("button", { type: "button", disabled: busy, title: "Salt-okur bir ajan oturumu (en çok $1): eksikleri doldurur, şüpheli satırları düzeltir, AGENTS.md taslağı yazar; ardından doğrulama ve gerekirse bir onarım turu",
-    onclick: () => startOnboardJob(true) }, icon("zap"), "Ajanla doldur");
-  const verifyBtn = h("button", { type: "button", disabled: busy, title: "Geçici bir klonda prepare'i ve kontrolleri motorun koşturduğu gibi dener",
-    onclick: () => startOnboardJob(false) }, icon("play"), "Doğrula");
+  const agentBtn = h("button", { type: "button", disabled: busy, title: t("Salt-okur bir ajan oturumu (en çok $1): eksikleri doldurur, şüpheli satırları düzeltir, AGENTS.md taslağı yazar; ardından doğrulama ve gerekirse bir onarım turu"),
+    onclick: () => startOnboardJob(true) }, icon("zap"), t("Ajanla doldur"));
+  const verifyBtn = h("button", { type: "button", disabled: busy, title: t("Geçici bir klonda prepare'i ve kontrolleri motorun koşturduğu gibi dener"),
+    onclick: () => startOnboardJob(false) }, icon("play"), t("Doğrula"));
   const notes = ob.proposal.notes || [];
   let agentsBox = "";
   if (!found.has_rules && ob.proposal.agents_md) {
     const area = h("textarea", { id: "ob-agents-md", rows: 14, oninput: (e) => { ob.proposal.agents_md = e.target.value; } });
     area.value = ob.proposal.agents_md;
     agentsBox = h("div", { class: "ob-section ob-agents" },
-      h("div", { class: "row" }, h("h3", { class: "grow" }, "AGENTS.md taslağı"), found.company ? h("span", { class: "pill warn" }, "şirket reposu") : ""),
-      h("p", { class: "muted small" }, "Repoda AGENTS.md yok; ajan bunu yazdı. Düzenleyebilirsin. 'Draft PR aç' geçici bir worktree'de docs/agents-md dalını açar, commit'ler, push'lar ve draft PR açar; senin checkout'una dokunmaz."),
+      h("div", { class: "row" }, h("h3", { class: "grow" }, t("AGENTS.md taslağı")), found.company ? h("span", { class: "pill warn" }, t("şirket reposu")) : ""),
+      h("p", { class: "muted small" }, t("Repoda AGENTS.md yok; ajan bunu yazdı. Düzenleyebilirsin. 'Draft PR aç' geçici bir worktree'de docs/agents-md dalını açar, commit'ler, push'lar ve draft PR açar; senin checkout'una dokunmaz.")),
       area,
       // Once the PR is open the button goes: a second click would push the same branch again.
-      h("div", { class: "row end" }, ob.prUrl ? link(ob.prUrl, icon("pr"), "Draft PR açıldı")
-        : h("button", { type: "button", disabled: !s.github_repo || !s.gh_user, onclick: () => openAgentsPr(area.value) }, icon("pr"), "Draft PR aç")));
+      h("div", { class: "row end" }, ob.prUrl ? link(ob.prUrl, icon("pr"), t("Draft PR açıldı"))
+        : h("button", { type: "button", disabled: !s.github_repo || !s.gh_user, onclick: () => openAgentsPr(area.value) }, icon("pr"), t("Draft PR aç"))));
   }
   $("onboard-result").replaceChildren(
     checks,
     h("div", { class: "onboard-grid" },
-      h("label", { for: "ob-name" }, "ad"), field("name"),
-      h("label", {}, "yol"), h("div", { class: "mono" }, s.path),
+      h("label", { for: "ob-name" }, t("ad")), field("name"),
+      h("label", {}, t("yol")), h("div", { class: "mono" }, s.path),
       h("label", { for: "ob-base_branch" }, "base branch"), field("base_branch"),
       h("label", { for: "ob-github_repo" }, "github repo"), field("github_repo"),
-      h("label", { for: "ob-gh_user" }, "gh hesabı"), field("gh_user"),
-      h("label", { for: "ob-mode" }, "mod"), modeSelect(s, found),
+      h("label", { for: "ob-gh_user" }, t("gh hesabı")), field("gh_user"),
+      h("label", { for: "ob-mode" }, t("mod")), modeSelect(s, found),
     ),
-    h("div", { class: "row ob-tools" }, agentBtn, verifyBtn, h("span", { class: "muted small grow" }, "Kaydetmeden önce denenir; hiçbir şey 'Config'e ekle'ye kadar yazılmaz.")),
+    h("div", { class: "row ob-tools" }, agentBtn, verifyBtn, h("span", { class: "muted small grow" }, t("Kaydetmeden önce denenir; hiçbir şey 'Config'e ekle'ye kadar yazılmaz."))),
     obJobStatus(),
-    obSection("prepare", "prepare (koşudan önce, ağ açık)", { run: "" }),
-    obSection("env", "test ortamı", { key: "", value: "" }),
-    obSection("checks", "kontroller (implement sonrası, sandbox'ta)", { name: "", run: "" }),
-    ob.proposal.check_sandbox?.length ? h("p", { class: "muted small" }, `Sandbox ön ayarı: ${ob.proposal.check_sandbox.join(", ")} `
-      + "(xcode: SwiftPM önbelleğine yazma ve simülatörün test soketi; başka hiçbir şey açılmaz). Config'e check_sandbox olarak yazılır.") : "",
-    notes.length ? h("div", { class: "ob-section" }, h("h3", {}, "notlar"), h("ul", { class: "small" }, notes.map((n) => h("li", {}, n)))) : "",
+    obSection("prepare", t("prepare (koşudan önce, ağ açık)"), { run: "" }),
+    obSection("env", t("test ortamı"), { key: "", value: "" }),
+    obSection("checks", t("kontroller (implement sonrası, sandbox'ta)"), { name: "", run: "" }),
+    ob.proposal.check_sandbox?.length ? h("p", { class: "muted small" }, t("Sandbox ön ayarı: {0} ", ob.proposal.check_sandbox.join(", "))
+      + t("(xcode: SwiftPM önbelleğine yazma ve simülatörün test soketi; başka hiçbir şey açılmaz). Config'e check_sandbox olarak yazılır.")) : "",
+    notes.length ? h("div", { class: "ob-section" }, h("h3", {}, t("notlar")), h("ul", { class: "small" }, notes.map((n) => h("li", {}, n)))) : "",
     agentsBox,
-    h("p", { class: "muted small" }, "Yer tutucular: {run_id}, {state}, {worktree}, {checkout} (ana checkout: git'in yok saydığı dosyaları prepare'de oradan kopyalamak için)."),
-    h("div", { class: "row end" }, found.can_add ? "" : h("span", { class: "error-banner small" }, "Kırmızı maddeyi çözmeden eklenemez."), add),
+    h("p", { class: "muted small" }, t("Yer tutucular: {run_id}, {state}, {worktree}, {checkout} (ana checkout: git'in yok saydığı dosyaları prepare'de oradan kopyalamak için).")),
+    h("div", { class: "row end" }, found.can_add ? "" : h("span", { class: "error-banner small" }, t("Kırmızı maddeyi çözmeden eklenemez.")), add),
   );
 }
 
@@ -2845,7 +2900,7 @@ function renderOnboard() {
 // proposed for a company repository, personal elsewhere.
 function modeSelect(s, found) {
   const sel = h("select", { id: "ob-mode", title: CONTROLLED_TITLE, onchange: (e) => { s.mode = e.target.value; } },
-    h("option", { value: "controlled" }, "Kontrollü"), h("option", { value: "personal" }, "Kişisel"));
+    h("option", { value: "controlled" }, t("Kontrollü")), h("option", { value: "personal" }, t("Kişisel")));
   sel.value = s.mode || (found.company ? "controlled" : "personal");
   s.mode = sel.value;
   return sel;
@@ -2854,8 +2909,8 @@ function modeSelect(s, found) {
 // --- stats ----------------------------------------------------------------------------------------
 
 const tokens = (n) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${Math.round(n / 1e3)}k` : String(n || 0));
-const OUTCOME_TR = { ready: "hazır", needs_user: "soru", failed: "başarısız", killed: "durduruldu", timeout: "zaman aşımı", lost: "kayıp", running: "sürüyor",
-  done: "bitti (v1)", "ready-for-dev": "spec hazır (v1)", blocked: "takıldı (v1)" };
+const OUTCOME_TR = { ready: t("hazır"), needs_user: t("soru"), failed: t("başarısız"), killed: t("durduruldu"), timeout: t("zaman aşımı"), lost: t("kayıp"), running: t("sürüyor"),
+  done: t("bitti (v1)"), "ready-for-dev": t("spec hazır (v1)"), blocked: t("takıldı (v1)") };
 // Outcome colours: finished quiet, waiting on you orange, broken red; stage colours are their own categorical set,
 // apart from the status colours and the accent.
 const OUTCOME_COLOR = { ready: "var(--text)", done: "var(--text)", "ready-for-dev": "var(--text-2)", needs_user: "var(--accent)", blocked: "var(--warn)",
@@ -2886,7 +2941,7 @@ async function loadStats() {
     h("div", { class: "chart-axis" }, h("span", {}, money(max)), h("span", {}, money(max / 2)), h("span", {}, "$0")),
     h("div", { class: "chart-bars" }, s.daily.map((d, i) => {
       const isToday = i === s.daily.length - 1;
-      const title = `${d.day}: ${money(d.cost)} · ${Object.entries(d.stages).map(([k, v]) => `${k} ${money(v)}`).join(" · ") || "maliyet yok"} · ${d.sessions} oturum`;
+      const title = `${d.day}: ${money(d.cost)} · ${Object.entries(d.stages).map(([k, v]) => `${k} ${money(v)}`).join(" · ") || t("maliyet yok")} · ${plural(t("{0} oturum"), d.sessions)}`;
       return h("div", { class: "chart-col" + (isToday ? " today" : ""), title },
         h("div", { class: "chart-stack", style: `animation-delay:${(i * 0.03).toFixed(2)}s` },
           d.cost ? stageNames.filter((n) => d.stages[n]).map((n) => h("div", { class: "seg", style: `height:${Math.max(2, (d.stages[n] / max) * CHART_H).toFixed(1)}px;background:${color(n)}` }))
@@ -2905,61 +2960,66 @@ async function loadStats() {
   // the quota it used (API prices), "kota".
   const dl = s.delivery;
   const units = new Set([...dl.by_target, dl.overall].filter((r) => r.merged).map((r) => r.unit));
-  const perLabel = units.has("usd") && !units.has("kota") ? "PR başına maliyet" : units.has("usd") ? "PR başına kota / maliyet" : "PR başına kota";
-  const perPr = (r) => (r.cost_per_pr === null ? "–" : r.unit === "usd" ? money(r.cost_per_pr) : `≈${money(r.cost_per_pr)} kota`);
+  const perLabel = units.has("usd") && !units.has("kota") ? t("PR başına maliyet") : units.has("usd") ? t("PR başına kota / maliyet") : t("PR başına kota");
+  const perPr = (r) => (r.cost_per_pr === null ? "–" : r.unit === "usd" ? money(r.cost_per_pr) : t("≈{0} kota", money(r.cost_per_pr)));
   const dash = (v, f) => (v === null || v === undefined ? "–" : f(v));
   const deliveryRows = [...dl.by_target, ...(dl.by_target.length > 1 ? [dl.overall] : [])];
-  const delivery = card("Teslim", `birleşen PR'lar · son ${dl.days} gün`,
+  const delivery = card(t("Teslim"), t("birleşen PR'lar · son {0} gün", dl.days),
     h("div", { class: "delivery-table" },
-      ["proje", "birleşen PR", "istek olmadan", "PR başına tur", perLabel].map((x, i) => h("span", { class: "th" + (i ? " num" : "") }, x)),
+      [t("proje"), t("birleşen PR"), t("istek olmadan"), t("PR başına tur"), perLabel].map((x, i) => h("span", { class: "th" + (i ? " num" : "") }, x)),
       deliveryRows.map((r) => [
-        r === dl.overall ? h("strong", {}, "hepsi") : h("span", {}, r.name),
+        r === dl.overall ? h("strong", {}, t("hepsi")) : h("span", {}, r.name),
         h("span", { class: "num mono" }, String(r.merged)),
-        h("span", { class: "num mono", title: r.merged ? `${r.clean}/${r.merged} PR, PR açıldıktan sonra değişiklik istenmeden birleşti` : "" }, dash(r.clean_share, (v) => `%${Math.round(v * 100)}`)),
+        h("span", { class: "num mono", title: r.merged ? t("{0}/{1} PR, PR açıldıktan sonra değişiklik istenmeden birleşti", r.clean, r.merged) : "" }, dash(r.clean_share, (v) => pctText(Math.round(v * 100)))),
         h("span", { class: "num mono" }, dash(r.rounds_per_pr, (v) => v.toFixed(2))),
         h("span", { class: "num mono" }, perPr(r))])),
-    units.has("kota") ? h("p", { class: "muted small card-foot" }, "Abonelikli hesapta para ödenmez: değer, oturumların API fiyatıyla harcadığı kotanın karşılığı.") : "",
-    !dl.overall.merged ? h("p", { class: "muted small" }, `Son ${dl.days} günde birleşen PR yok.`) : "");
+    units.has("kota") ? h("p", { class: "muted small card-foot" }, t("Abonelikli hesapta para ödenmez: değer, oturumların API fiyatıyla harcadığı kotanın karşılığı.")) : "",
+    !dl.overall.merged ? h("p", { class: "muted small" }, t("Son {0} günde birleşen PR yok.", dl.days)) : "");
+  // The weekly report (Monday's file, or this week so far), folded: its numbers are mostly above, its lists are not.
+  const report = h("div", {});
+  api(`/api/report?lang=${I18N.lang}`).then((r) => report.replaceChildren(card(t("Haftalık rapor"), r.week || t("bu hafta, şimdiye kadar"),
+    h("details", { class: "weekly-report" }, h("summary", { class: "small" }, t("Raporu aç")),
+      h("div", { class: "md" }, MD.blocks(r.markdown.replace(/^# .*\n+/, ""))))))).catch(() => {});
   $("stats-body").replaceChildren(
     h("div", { class: "kpis" },
-      kpi("Bugün", money(s.totals.today), today ? `${today.sessions} oturum${top ? ` · en çok ${top[0]}` : ""}` : "", "now"),
-      kpi("Son 7 gün", money(s.totals.week), `${week} oturum`), kpi("Son 30 gün", money(s.totals.month), `${month} oturum`),
-      kpi("Toplam", money(s.totals.all), `${s.totals.sessions} oturum · ${s.totals.tickets} ticket`)),
-    delivery,
+      kpi(t("Bugün"), money(s.totals.today), today ? plural(t("{0} oturum"), today.sessions) + (top ? t(" · en çok {0}", top[0]) : "") : "", "now"),
+      kpi(t("Son 7 gün"), money(s.totals.week), plural(t("{0} oturum"), week)), kpi(t("Son 30 gün"), money(s.totals.month), plural(t("{0} oturum"), month)),
+      kpi(t("Toplam"), money(s.totals.all), t("{0} oturum · {1} ticket", s.totals.sessions, s.totals.tickets))),
+    delivery, report,
     h("div", { class: "stats-row" },
-      card("Günlük maliyet", `aşamaya göre · son ${s.daily.length} gün`, bars,
+      card(t("Günlük maliyet"), t("aşamaya göre · son {0} gün", s.daily.length), bars,
         h("div", { class: "legend small" }, stageNames.map((n) => h("span", { class: "legend-item" }, h("span", { class: "sw", style: `background:${color(n)}` }), n)))),
-      card("Projeye göre", "", h("div", { class: "hbars" }, s.by_target.map((g, i) => h("div", { class: "hbar-row" },
+      card(t("Projeye göre"), "", h("div", { class: "hbars" }, s.by_target.map((g, i) => h("div", { class: "hbar-row" },
         h("div", { class: "hbar-top" }, h("span", {}, g.name), h("span", { class: "mono" }, money(g.cost))),
         bar((g.cost / maxTarget) * 100, "var(--text)", i * 0.08),
-        h("div", { class: "hbar-sub" }, `${g.sessions} oturum · ${g.turns} tur · ${duration(g.duration_ms / 1000)}`,
-          s.budgets[g.name] ? ` · oturum başı bütçe ${money(s.budgets[g.name])}` : "")))),
-        Object.values(s.budgets).some(Boolean) ? "" : h("p", { class: "muted small card-foot" }, "Proje bütçesi tanımlı değil."))),
+        h("div", { class: "hbar-sub" }, t("{0} oturum · {1} tur · {2}", g.sessions, g.turns, duration(g.duration_ms / 1000)),
+          s.budgets[g.name] ? t(" · oturum başı bütçe {0}", money(s.budgets[g.name])) : "")))),
+        Object.values(s.budgets).some(Boolean) ? "" : h("p", { class: "muted small card-foot" }, t("Proje bütçesi tanımlı değil.")))),
     h("div", { class: "stats-row" },
-      card("Aşamalar", "maliyet · oturum · ortalama süre",
+      card(t("Aşamalar"), t("maliyet · oturum · ortalama süre"),
         h("div", { class: "stage-table" },
-          h("span", { class: "th" }, "aşama"), h("span", { class: "th" }, "maliyet"), h("span", { class: "th num" }, "toplam"), h("span", { class: "th num" }, "oturum"),
-          h("span", { class: "th num" }, "ort. maliyet"), h("span", { class: "th num" }, "ort. süre"),
+          h("span", { class: "th" }, t("aşama")), h("span", { class: "th" }, t("maliyet")), h("span", { class: "th num" }, t("toplam")), h("span", { class: "th num" }, t("oturum")),
+          h("span", { class: "th num" }, t("ort. maliyet")), h("span", { class: "th num" }, t("ort. süre")),
           s.by_stage.map((g, i) => [
             h("span", { class: "stage-name" }, h("span", { class: "sw", style: `background:${color(g.name)}` }), g.name),
             bar((g.cost / maxStage) * 100, color(g.name), i * 0.05),
             h("span", { class: "num mono" }, money(g.cost)), h("span", { class: "num mono muted" }, g.sessions),
             h("span", { class: "num mono muted" }, money(avg(g, "cost"))), h("span", { class: "num mono muted" }, duration(avg(g, "duration_ms") / 1000))]))),
       h("div", { class: "stats-side" },
-        card("Modeller", "",
+        card(t("Modeller"), "",
           h("div", { class: "split-bar" }, s.models.map((m, i) => h("div", { style: `width:${(m.cost / totalModels) * 100}%;background:${MODEL_SHADES[i % 3]}` }))),
           h("div", { class: "model-list" }, s.models.map((m, i) => h("div", { class: "model-row" },
             h("span", { class: "sw", style: `background:${MODEL_SHADES[i % 3]}` }),
             h("div", { class: "grow" }, h("div", { class: "mono" }, m.name),
-              h("div", { class: "muted small mono" }, `${tokens(m.output)} çıktı · ${tokens(m.input)} girdi · ${tokens(m.cache_read)} cache okuma · ${tokens(m.cache_write)} yazma`)),
+              h("div", { class: "muted small mono" }, t("{0} çıktı · {1} girdi · {2} cache okuma · {3} yazma", tokens(m.output), tokens(m.input), tokens(m.cache_read), tokens(m.cache_write)))),
             h("span", { class: "mono" }, money(m.cost)))))),
-        card("Oturum sonuçları", String(totalOut),
+        card(t("Oturum sonuçları"), String(totalOut),
           h("div", { class: "split-bar" }, outcomes.map(([k, v]) => h("div", { title: `${OUTCOME_TR[k] || k}: ${v}`, style: `width:${(v / totalOut) * 100}%;background:${OUTCOME_COLOR[k] || "var(--bad)"}` }))),
           h("div", { class: "outcome-list" }, outcomes.map(([k, v]) => h("span", { class: "outcome" },
             h("span", { class: "sw", style: `background:${OUTCOME_COLOR[k] || "var(--bad)"}` }), OUTCOME_TR[k] || k, h("span", { class: "mono" }, String(v)))))))),
-    card("En pahalı ticket'lar", "", h("div", { class: "top-tickets" }, s.top_tickets.map((t) => h("button", { class: "top-ticket", type: "button",
-      onclick: () => { const row = rowOf(t.target, t.id); if (row) openDrawer(row, "stages"); else toast(`${t.id} artık listede değil`, true); } },
-      h("span", { class: "top-cost" }, money(t.cost)), h("span", { class: "mono small" }, `${t.target} · ${t.id}`), h("span", { class: "muted small" }, `${t.sessions} oturum`))))),
+    card(t("En pahalı ticket'lar"), "", h("div", { class: "top-tickets" }, s.top_tickets.map((tk) => h("button", { class: "top-ticket", type: "button",
+      onclick: () => { const row = rowOf(tk.target, tk.id); if (row) openDrawer(row, "stages"); else toast(t("{0} artık listede değil", tk.id), true); } },
+      h("span", { class: "top-cost" }, money(tk.cost)), h("span", { class: "mono small" }, `${tk.target} · ${tk.id}`), h("span", { class: "muted small" }, plural(t("{0} oturum"), tk.sessions)))))),
   );
 }
 
@@ -2969,17 +3029,18 @@ async function loadStats() {
 // (as proposed or edited). Below them, the entries the stage sessions are given, with how often they were used.
 
 const SOURCE_TR = {
-  user_comment: "senin review yorumun", overruled_finding: "review eledi, sen düzelttirdin",
-  recurring_finding: "turlar boyunca tekrarlayan bulgu", answer_against_recommendation: "önerinin tersine cevabın",
-  plan_note: "plana değişiklik notun", github: "PR'daki geri bildirim",
-  answer: "soru turundaki cevabın", check_fixed: "sonra geçen kontrol", run_recovered: "sonra düzelen koşu", intent_gap: "niyet sapması",
+  user_comment: t("senin review yorumun"), overruled_finding: t("review eledi, sen düzelttirdin"),
+  recurring_finding: t("turlar boyunca tekrarlayan bulgu"), answer_against_recommendation: t("önerinin tersine cevabın"),
+  plan_note: t("plana değişiklik notun"), github: t("PR'daki geri bildirim"),
+  answer: t("soru turundaki cevabın"), check_fixed: t("sonra geçen kontrol"), run_recovered: t("sonra düzelen koşu"), intent_gap: t("niyet sapması"),
 };
+const kindName = (kind) => (kind === "yol" ? t("yol haritası") : t(kind));  // the entry kinds are data ("kural" …); their names are shown
 const ON_REVIEW_PAGE = new Set(["user_comment", "overruled_finding", "recurring_finding"]);
-const MEMORY_KINDS = [["kural", "Kurallar"], ["karar", "Kararlar"], ["tuzak", "Tuzaklar"], ["olay", "Olaylar"]];
-const MEMORY_MAIN = { kural: "Kural", karar: "Karar", tuzak: "Ne yapılır", olay: "Sonuç", yol: "Başlık" };  // the field "Düzenle ve onayla" edits
-const ORIGIN_TR = { answer: "soru turu", retro: "retro", migration: "eski kurallardan taşındı", lead: "lider" };
+const MEMORY_KINDS = [["kural", t("Kurallar")], ["karar", t("Kararlar")], ["tuzak", t("Tuzaklar")], ["olay", t("Olaylar")]];
+const MEMORY_MAIN = { kural: "Kural", karar: "Karar", tuzak: "Ne yapılır", olay: "Sonuç", yol: "Başlık" };  // i18n-ok: file-format field names; the field "Düzenle ve onayla" edits
+const ORIGIN_TR = { answer: t("soru turu"), retro: "retro", migration: t("eski kurallardan taşındı"), lead: t("lider") };
 // Proposal groups on the Hafıza page: the entry kinds, then roadmap scope changes (approving one edits roadmap.md).
-const PENDING_KINDS = [...MEMORY_KINDS.filter(([k]) => k !== "olay"), ["yol", "Yol haritası değişiklikleri"]];
+const PENDING_KINDS = [...MEMORY_KINDS.filter(([k]) => k !== "olay"), ["yol", t("Yol haritası değişiklikleri")]];
 
 function renderMemoryCount(s) {
   $("memory-count").textContent = s.memory_pending ? String(s.memory_pending) : "";
@@ -2995,52 +3056,52 @@ async function loadMemory() {
     $("memory-body").replaceChildren(h("p", { class: "error-banner" }, e.message));
     return;
   }
-  loadMemory.pending = data.targets.reduce((n, t) => n + t.pending.length, 0);
+  loadMemory.pending = data.targets.reduce((n, tk) => n + tk.pending.length, 0);
   renderMemory(data.targets);
-  const unseen = data.targets.filter((t) => t.pending.length || t.warnings.length);
-  if (unseen.length) Promise.all(unseen.map((t) => api("/api/attention/seen", { target: t.target, memory: true }))).then(() => refresh()).catch(() => { /* stays unread */ });
+  const unseen = data.targets.filter((tk) => tk.pending.length || tk.warnings.length);
+  if (unseen.length) Promise.all(unseen.map((tk) => api("/api/attention/seen", { target: tk.target, memory: true }))).then(() => refresh()).catch(() => { /* stays unread */ });
 }
 
-function memoryWhere(t) {
-  const label = t.source === "vault" ? `kasa: ${t.vault_dir}` : t.source === "override" ? "özel klasör" : "Ziggy durumu";
-  return h("span", { class: "muted small mono", title: t.dir }, `${label} · ${homeShort(t.dir)}`);
+function memoryWhere(tk) {
+  const label = tk.source === "vault" ? t("kasa: {0}", tk.vault_dir) : tk.source === "override" ? t("özel klasör") : t("Ziggy durumu");
+  return h("span", { class: "muted small mono", title: tk.dir }, `${label} · ${homeShort(tk.dir)}`);
 }
 
 function renderMemory(targets) {
   const blocks = [];
-  for (const t of targets) {
-    const stored = MEMORY_KINDS.reduce((n, [k]) => n + t.entries[k].length, 0);
-    const pending = PENDING_KINDS.map(([k, label]) => [label, t.pending.filter((c) => c.kind === k)]).filter(([, cs]) => cs.length);
+  for (const tk of targets) {
+    const stored = MEMORY_KINDS.reduce((n, [k]) => n + tk.entries[k].length, 0);
+    const pending = PENDING_KINDS.map(([k, label]) => [label, tk.pending.filter((c) => c.kind === k)]).filter(([, cs]) => cs.length);
     blocks.push(h("section", { class: "block mem-target" },
       h("div", { class: "block-head" },
-        h("h2", {}, t.target, h("span", { class: "count" }, t.pending.length ? String(t.pending.length) : "")),
-        memoryWhere(t)),
-      t.hint ? h("p", { class: "muted small mem-hint" }, t.hint) : "",
-      t.warnings.length ? h("div", { class: "notice mem-warnings" }, icon("alert"),
-        h("div", { class: "grow" }, h("strong", {}, "Hafıza dosyalarında okunamayan yerler var"),
-          h("ul", { class: "mem-warning-list small" }, t.warnings.map((w) => h("li", {}, w))))) : "",
-      pending.length ? h("div", { class: "small muted mem-label" }, "Bekleyen öneriler") : "",
+        h("h2", {}, tk.target, h("span", { class: "count" }, tk.pending.length ? String(tk.pending.length) : "")),
+        memoryWhere(tk)),
+      tk.hint ? h("p", { class: "muted small mem-hint" }, t(tk.hint)) : "",
+      tk.warnings.length ? h("div", { class: "notice mem-warnings" }, icon("alert"),
+        h("div", { class: "grow" }, h("strong", {}, t("Hafıza dosyalarında okunamayan yerler var")),
+          h("ul", { class: "mem-warning-list small" }, tk.warnings.map((w) => h("li", {}, t(w)))))) : "",
+      pending.length ? h("div", { class: "small muted mem-label" }, t("Bekleyen öneriler")) : "",
       ...pending.map(([label, cs]) => h("div", { class: "mem-kind" },
-        h("h3", { class: "mem-kind-h" }, label, h("span", { class: "muted small" }, ` · ${cs.length} öneri`)),
-        h("div", { class: "stack" }, cs.map((c) => memoryCard(t, c))))),
-      stored ? [h("div", { class: "small muted mem-label" }, "Hafızada"), MEMORY_KINDS.map(([k, label]) => memoryEntries(t, k, label))]
-        : !t.pending.length ? empty("Henüz hafıza kaydı yok. Soru turlarında verdiğin cevaplar karar önerisi olur; bir ticket bitince kısa bir retro oturumu review yorumlarından, düzelttirdiğin bulgulardan, sonradan geçen kontrollerden ve düzelen koşulardan kural, karar ve tuzak önerir. Sen onaylamadan hafızaya hiçbir şey yazılmaz.", "spec") : ""));
+        h("h3", { class: "mem-kind-h" }, label, h("span", { class: "muted small" }, " · " + plural(t("{0} öneri"), cs.length))),
+        h("div", { class: "stack" }, cs.map((c) => memoryCard(tk, c))))),
+      stored ? [h("div", { class: "small muted mem-label" }, t("Hafızada")), MEMORY_KINDS.map(([k, label]) => memoryEntries(tk, k, label))]
+        : !tk.pending.length ? empty(t("Henüz hafıza kaydı yok. Soru turlarında verdiğin cevaplar karar önerisi olur; bir ticket bitince kısa bir retro oturumu review yorumlarından, düzelttirdiğin bulgulardan, sonradan geçen kontrollerden ve düzelen koşulardan kural, karar ve tuzak önerir. Sen onaylamadan hafızaya hiçbir şey yazılmaz."), "spec") : ""));
   }
-  const decided = targets.flatMap((t) => t.decided.map((c) => ({ t, c })))
+  const decided = targets.flatMap((tk) => tk.decided.map((c) => ({ t: tk, c })))
     .sort((a, b) => String(b.c.decided_at).localeCompare(String(a.c.decided_at))).slice(0, 20);
   if (decided.length) {
     blocks.push(h("details", { class: "section mem-decided" },
-      h("summary", {}, h("span", { class: "section-title" }, "Son kararlar", h("span", { class: "muted small" }, String(decided.length)))),
-      h("div", { class: "section-body" }, h("ul", { class: "mem-log" }, decided.map(({ t, c }) => h("li", {},
-        h("span", { class: `pill ${c.status === "approved" ? "ok" : "mute"}` }, c.status === "approved" ? (c.edited ? "düzenlenip onaylandı" : "onaylandı") : "reddedildi"),
-        h("span", { class: "muted small" }, `${t.target} · ${c.kind} · ${when(c.decided_at)}`),
+      h("summary", {}, h("span", { class: "section-title" }, t("Son kararlar"), h("span", { class: "muted small" }, String(decided.length)))),
+      h("div", { class: "section-body" }, h("ul", { class: "mem-log" }, decided.map(({ t: tk, c }) => h("li", {},
+        h("span", { class: `pill ${c.status === "approved" ? "ok" : "mute"}` }, c.status === "approved" ? (c.edited ? t("düzenlenip onaylandı") : t("onaylandı")) : t("reddedildi")),
+        h("span", { class: "muted small" }, `${tk.target} · ${kindName(c.kind)} · ${when(c.decided_at)}`),
         c.entry ? h("span", { class: "id" }, c.entry) : "",
         h("span", { class: "md small" }, MD.inline(c.approved_title || c.title)),
-        c.replaced?.length ? h("span", { class: "muted small" }, `${c.replaced.join(", ")} yerine`) : ""))))));
+        c.replaced?.length ? h("span", { class: "muted small" }, t("{0} yerine", c.replaced.join(", "))) : ""))))));
   }
-  const off = targets.filter((t) => !t.retro).map((t) => t.target);
-  if (off.length) blocks.push(h("p", { class: "muted small" }, `Retro kapalı: ${off.join(", ")} (config'te retro = false); bu projelere yalnız soru turlarındaki cevaplardan öneri gelir.`));
-  if (!targets.length) blocks.push(empty("Proje yok.", "spec"));
+  const off = targets.filter((tk) => !tk.retro).map((tk) => tk.target);
+  if (off.length) blocks.push(h("p", { class: "muted small" }, t("Retro kapalı: {0} (config'te retro = false); bu projelere yalnız soru turlarındaki cevaplardan öneri gelir.", off.join(", "))));
+  if (!targets.length) blocks.push(empty(t("Proje yok."), "spec"));
   $("memory-body").replaceChildren(...blocks);
   $("memory-body").querySelector(".mem-card")?.classList.add("lead");  // the first proposal: your next move here
 }
@@ -3050,120 +3111,121 @@ function scopeLine(scope) {
   const topics = scope?.topics || [];
   if (!paths.length && !topics.length) return "";
   return h("div", { class: "muted small mem-scope" },
-    paths.length ? ["dosyalar ", ...paths.flatMap((p, i) => [i ? ", " : "", h("code", {}, p)])] : "",
+    paths.length ? [t("dosyalar "), ...paths.flatMap((p, i) => [i ? ", " : "", h("code", {}, p)])] : "",
     paths.length && topics.length ? " · " : "",
-    topics.length ? `konular ${topics.join(", ")}` : "");
+    topics.length ? t("konular {0}", topics.join(", ")) : "");
 }
 
-function memorySource(t, s) {
+function memorySource(tk, s) {
   const open = () => {
-    const row = rowOf(t.target, s.ticket);
+    const row = rowOf(tk.target, s.ticket);
     if (row) openDrawer(row);
-    else toast(`${s.ticket} bulunamadı`, true);
+    else toast(t("{0} bulunamadı", s.ticket), true);
   };
   return h("li", { class: "mem-source" },
     h("div", { class: "row tight" },
       s.ticket ? h("span", { class: "id" }, s.ticket) : "", s.ref ? h("span", { class: "tag" }, s.ref) : "",
       h("span", { class: "muted small grow" }, SOURCE_TR[s.kind] || s.kind, s.where ? ` · ${s.where}` : ""),
       s.ticket ? h("button", { class: "small", onclick: open }, icon("ticket"), "Ticket") : "",
-      s.ticket && ON_REVIEW_PAGE.has(s.kind) ? h("a", { class: "button small", href: ReviewPage.hash(t.target, s.ticket) }, icon("diff"), "İnceleme") : "",
+      s.ticket && ON_REVIEW_PAGE.has(s.kind) ? h("a", { class: "button small", href: ReviewPage.hash(tk.target, s.ticket) }, icon("diff"), t("İnceleme")) : "",
       s.url ? h("a", { class: "button small", href: s.url, target: "_blank", rel: "noopener noreferrer" }, icon("external"), "GitHub") : ""),
     s.summary ? h("div", { class: "small mem-quote" }, s.summary) : "");
 }
 
-function memoryCard(t, c) {
+function memoryCard(tk, c) {
   const main = MEMORY_MAIN[c.kind];
-  const titleBox = h("input", { type: "text", "aria-label": "Başlık", maxlength: 120 });
-  const box = h("textarea", { rows: 3, class: "answer-box", "aria-label": main, maxlength: 600 });
+  const titleBox = h("input", { type: "text", "aria-label": t("Başlık"), maxlength: 120 });
+  const box = h("textarea", { rows: 3, class: "answer-box", "aria-label": t(main), maxlength: 600 });
   const replace = h("input", { type: "checkbox" });
   const editor = h("div", { class: "mem-edit stack", hidden: true },
-    h("label", { class: "mem-edit-field" }, h("span", { class: "muted small" }, "Başlık"), titleBox),
-    h("label", { class: "mem-edit-field" }, h("span", { class: "muted small" }, main), box));
+    h("label", { class: "mem-edit-field" }, h("span", { class: "muted small" }, t("Başlık")), titleBox),
+    h("label", { class: "mem-edit-field" }, h("span", { class: "muted small" }, t(main)), box));
   const decide = async (btn, action, edited) => {
     btn.disabled = true;
     try {
-      const out = await api(`/api/memory/${encodeURIComponent(t.target)}/candidates/${encodeURIComponent(c.id)}`,
+      const out = await api(`/api/memory/${encodeURIComponent(tk.target)}/candidates/${encodeURIComponent(c.id)}`,
         { action, ...(action === "approve" ? { replace: replace.checked } : {}), ...(edited || {}) });
       const made = out.candidate;
-      toast(action === "approve" ? (c.kind === "yol" ? `${t.target}: yol haritasına işlendi (${made.entry})`
-        : `${t.target}: ${made.entry} olarak eklendi${made.replaced?.length ? ` · ${made.replaced.join(", ")} yerine` : ""}`)
-        : `${t.target}: öneri reddedildi; hafıza değişmedi`);
+      toast(action === "approve" ? (c.kind === "yol" ? t("{0}: yol haritasına işlendi ({1})", tk.target, made.entry)
+        : t("{0}: {1} olarak eklendi{2}", tk.target, made.entry, made.replaced?.length ? t(" · {0} yerine", made.replaced.join(", ")) : ""))
+        : t("{0}: öneri reddedildi; hafıza değişmedi", tk.target));
     } catch (e) {
       toast(e.message, true);
     }
     await loadMemory();
     refresh();
   };
-  const approve = h("button", { class: "small primary", onclick: (e) => decide(e.currentTarget, "approve") }, icon("check"), "Onayla");
+  const approve = h("button", { class: "small primary", onclick: (e) => decide(e.currentTarget, "approve") }, icon("check"), t("Onayla"));
   const edit = h("button", { class: "small", onclick: () => {
     editor.hidden = false;
     titleBox.value = c.title;
     box.value = c.fields[main] || "";
     box.focus();
     actions.hidden = true;
-  } }, icon("spec"), "Düzenle ve onayla");
-  if (c.kind === "yol" && !["ekle", "evre ekle"].includes(c.fields?.["İşlem"])) edit.hidden = true;  // nothing to word in a removal or a move
-  const reject = h("button", { class: "small ghost", onclick: (e) => decide(e.currentTarget, "reject") }, icon("x"), "Reddet");
+  } }, icon("spec"), t("Düzenle ve onayla"));
+  if (c.kind === "yol" && !["ekle", "evre ekle"].includes(c.fields?.["İşlem"])) edit.hidden = true;  // i18n-ok: roadmap file data; nothing to word in a removal or a move
+  const reject = h("button", { class: "small ghost", onclick: (e) => decide(e.currentTarget, "reject") }, icon("x"), t("Reddet"));
   const actions = h("div", { class: "row" }, approve, edit, reject,
     h("span", { class: "muted small grow" }, [c.ticket, ORIGIN_TR[c.origin] || c.origin].filter(Boolean).join(" · "), ` · ${ago(c.created_at)}`));
   editor.append(h("div", { class: "row" },
     h("button", { class: "small primary", onclick: (e) => {
-      if (!titleBox.value.trim()) return toast("Başlık boş olamaz", true);
-      if (!box.value.trim()) return toast(`${main} boş olamaz`, true);
+      if (!titleBox.value.trim()) return toast(t("Başlık boş olamaz"), true);
+      if (!box.value.trim()) return toast(t("{0} boş olamaz", t(main)), true);
       decide(e.currentTarget, "approve", { title: titleBox.value, text: box.value });
-    } }, icon("check"), "Kaydet ve onayla"),
-    h("button", { class: "small ghost", onclick: () => { editor.hidden = true; actions.hidden = false; } }, "Vazgeç"),
-    h("span", { class: "muted small" }, "Tek satır; kapsam, kaynak ve tarih olduğu gibi kalır.")));
+    } }, icon("check"), t("Kaydet ve onayla")),
+    h("button", { class: "small ghost", onclick: () => { editor.hidden = true; actions.hidden = false; } }, t("Vazgeç")),
+    h("span", { class: "muted small" }, t("Tek satır; kapsam, kaynak ve tarih olduğu gibi kalır."))));
   return h("article", { class: "panel mem-card" },
-    h("div", { class: "row tight" }, h("span", { class: "tag" }, c.kind), h("strong", { class: "md mem-title" }, MD.inline(c.title))),
+    h("div", { class: "row tight" }, h("span", { class: "tag" }, kindName(c.kind)), h("strong", { class: "md mem-title" }, MD.inline(c.title))),
     h("ul", { class: "mem-fields" }, Object.entries(c.fields || {}).map(([name, value]) =>
-      h("li", { class: "md" }, h("strong", {}, `${name}: `), MD.inline(value)))),
+      h("li", { class: "md" }, h("strong", {}, `${t(name)}: `), MD.inline(value)))),
     scopeLine(c.scope),
     c.similar?.length ? h("div", { class: "mem-similar small" },
-      c.similar.map((s) => h("div", {}, h("span", { class: "muted" }, "benzer: "), h("span", { class: "id" }, s.id), " ", s.title)),
-      h("label", { class: "check", title: "Onaylanınca benzer kayıtlara \"yerini aldı\" yazılır; aşamalara artık verilmezler" }, replace, "yerine geçsin")) : "",
-    c.sources?.length ? h("div", { class: "small muted mem-label" }, "Kaynaklar") : "",
-    c.sources?.length ? h("ul", { class: "mem-sources" }, c.sources.map((s) => memorySource(t, s))) : "",
+      c.similar.map((s) => h("div", {}, h("span", { class: "muted" }, t("benzer: ")), h("span", { class: "id" }, s.id), " ", s.title)),
+      h("label", { class: "check", title: t("Onaylanınca benzer kayıtlara \"yerini aldı\" yazılır; aşamalara artık verilmezler") }, replace, t("yerine geçsin"))) : "",
+    c.sources?.length ? h("div", { class: "small muted mem-label" }, t("Kaynaklar")) : "",
+    c.sources?.length ? h("ul", { class: "mem-sources" }, c.sources.map((s) => memorySource(tk, s))) : "",
     editor, actions);
 }
 
-function memoryEntries(t, kind, label) {
-  const all = t.entries[kind];
+function memoryEntries(tk, kind, label) {
+  const all = tk.entries[kind];
   if (!all.length) return "";
   const live = all.filter((e) => e.status === "active");
   const old = all.filter((e) => e.status !== "active");
-  const list = (es) => h("ul", { class: "mem-entries" + (kind === "olay" ? " compact" : "") }, es.map((e) => memoryEntry(t, e)));
+  const list = (es) => h("ul", { class: "mem-entries" + (kind === "olay" ? " compact" : "") }, es.map((e) => memoryEntry(tk, e)));
   return h("div", { class: "mem-kind" },
     h("h3", { class: "mem-kind-h" }, label, h("span", { class: "muted small" }, ` · ${live.length}`)),
-    live.length ? list(live) : h("p", { class: "muted small" }, "Etkin kayıt yok."),
-    old.length ? h("details", { class: "mem-old" }, h("summary", { class: "muted small" }, `Yerini almış ya da unutulmuş: ${old.length}`), list(old)) : "");
+    live.length ? list(live) : h("p", { class: "muted small" }, t("Etkin kayıt yok.")),
+    old.length ? h("details", { class: "mem-old" }, h("summary", { class: "muted small" }, t("Yerini almış ya da unutulmuş: {0}", old.length)), list(old)) : "");
 }
 
-function memoryEntry(t, e) {
+function memoryEntry(tk, e) {
   const forget = async (btn) => {
-    if (!(await confirmBox(`${e.id} unutulsun mu?\nAşamalara artık verilmez; metni dosyada "Durum: unutuldu" ile kalır.`))) return;
+    if (!(await confirmBox(t("{0} unutulsun mu?\nAşamalara artık verilmez; metni dosyada \"Durum: unutuldu\" ile kalır.", e.id)))) return;
     btn.disabled = true;
     try {
-      await api(`/api/memory/${encodeURIComponent(t.target)}/entries/${encodeURIComponent(e.id)}`, { action: "forget" });
-      toast(`${t.target}: ${e.id} unutuldu`);
+      await api(`/api/memory/${encodeURIComponent(tk.target)}/entries/${encodeURIComponent(e.id)}`, { action: "forget" });
+      toast(t("{0}: {1} unutuldu", tk.target, e.id));
     } catch (err) {
       toast(err.message, true);
     }
     await loadMemory();
   };
   const main = e.fields[MEMORY_MAIN[e.kind]];
-  const status = e.status === "replaced" ? h("span", { class: "pill mute" }, `yerini aldı ${e.replaced_by || ""}`.trim())
-    : e.status === "forgotten" ? h("span", { class: "pill mute" }, "unutuldu") : "";
-  return h("li", { class: "mem-entry" + (e.status === "active" ? "" : " inactive"), id: `mem-${t.target}-${e.id}` },
+  const status = e.status === "replaced" ? h("span", { class: "pill mute" }, t("yerini aldı {0}", e.replaced_by || "").trim())
+    : e.status === "forgotten" ? h("span", { class: "pill mute" }, t("unutuldu")) : "";
+  return h("li", { class: "mem-entry" + (e.status === "active" ? "" : " inactive"), id: `mem-${tk.target}-${e.id}` },
     h("div", { class: "row tight" },
       h("span", { class: "id" }, e.id), h("strong", { class: "md mem-title grow" }, MD.inline(e.title)), status,
-      e.stale ? h("span", { class: "pill warn", title: `${t.stale_days} gündür kullanılmadı` }, "soluk") : "",
-      e.stale ? h("span", { class: "muted small" }, "Unutalım mı?") : "",
-      h("span", { class: "muted small nowrap" }, e.uses ? `${e.uses} kez kullanıldı · son ${ago(e.last_used)}` : "henüz kullanılmadı"),
-      e.status === "active" ? h("button", { class: "small ghost", onclick: (ev) => forget(ev.currentTarget) }, icon("x"), "Unut") : ""),
+      e.stale ? h("span", { class: "pill warn", title: t("{0} gündür kullanılmadı", tk.stale_days) }, t("soluk")) : "",
+      e.stale && !e.prune ? h("span", { class: "muted small" }, t("Unutalım mı?")) : "",
+      e.prune ? h("span", { class: "pill warn", title: t(e.prune) }, t("budanabilir")) : "",
+      h("span", { class: "muted small nowrap" }, e.uses ? t("{0} kez kullanıldı · son {1}", e.uses, ago(e.last_used)) : t("henüz kullanılmadı")),
+      e.status === "active" ? h("button", { class: "small ghost", onclick: (ev) => forget(ev.currentTarget) }, icon("x"), t("Unut")) : ""),
     main ? h("div", { class: "md small" }, MD.inline(main)) : "",
     e.kind === "olay" && e.fields.PR ? h("div", { class: "muted small" }, /^https?:\/\//.test(e.fields.PR) ? link(e.fields.PR, e.fields.PR) : e.fields.PR,
-      e.fields["Birleşti"] ? ` · birleşti ${e.fields["Birleşti"]}` : "") : "",
+      e.fields.Birleşti ? t(" · birleşti {0}", e.fields.Birleşti) : "") : "",
     e.kind === "olay" ? "" : scopeLine(e.scope));
 }
 
@@ -3171,7 +3233,7 @@ function memoryEntry(t, e) {
 // The project document comes from the base branch (/api/targets/<n>/project); a request goes to the
 // router, whose proposal (a ticket type) waits for a click before a ticket is made and started.
 
-const TYPE_OPTIONS = [["feat", "feat · yeni özellik"], ["fix", "fix · hata düzeltme"], ["refactor", "refactor"], ["chore", "chore · bakım"], ["docs", "docs"], ["project", "project · PROJECT.md'yi yaz/güncelle"]];
+const TYPE_OPTIONS = [["feat", t("feat · yeni özellik")], ["fix", t("fix · hata düzeltme")], ["refactor", "refactor"], ["chore", t("chore · bakım")], ["docs", "docs"], ["project", t("project · PROJECT.md'yi yaz/güncelle")]];
 let project = null; // {name, state, loading, at, pulls, roadmap, roadAt}
 
 async function openProject(name) {
@@ -3235,36 +3297,36 @@ async function loadRoadmap() {
 function renderProject(s, force) {
   const p = project;
   if (!p) return;
-  const t = s.targets.find((x) => x.name === p.name);
-  if (!t) {
-    $("pj-head").replaceChildren(h("h1", {}, p.name), h("span", { class: "muted" }, "Böyle bir proje yok."));
+  const tk = s.targets.find((x) => x.name === p.name);
+  if (!tk) {
+    $("pj-head").replaceChildren(h("h1", {}, p.name), h("span", { class: "muted" }, t("Böyle bir proje yok.")));
     return;
   }
   // The document follows merged PRs: reload now and then.
   if (Date.now() - (p.at || 0) > 60000) loadProjectState(false);
   if (Date.now() - (p.pullsAt || 0) > 60000) loadPulls(false);
-  const [cls, text] = t.error ? ["bad", "config hatası"] : t.active?.length ? ["live", t.active.length > 1 ? `${t.active.length} koşu` : "koşu var"] : ["ok", "hazır"];
-  const headSig = JSON.stringify([t.name, cls, text, t.github_repo, t.bmad, t.mode]);
+  const [cls, text] = tk.error ? ["bad", t("config hatası")] : tk.active?.length ? ["live", tk.active.length > 1 ? plural(t("{0} koşu"), tk.active.length) : t("koşu var")] : ["ok", t("hazır")];
+  const headSig = JSON.stringify([tk.name, cls, text, tk.github_repo, tk.bmad, tk.mode]);
   if (headSig !== $("pj-head").dataset.sig) {
     $("pj-head").dataset.sig = headSig;
-    $("pj-head").replaceChildren(h("h1", {}, t.name), h("span", { class: "badge" }, h("span", { class: `dot ${cls}` }), text), bmadPill(t), controlledPill(t),
-      t.github_repo ? link(`https://github.com/${t.github_repo}`, h("span", { class: "mono small" }, t.github_repo)) : "");
+    $("pj-head").replaceChildren(h("h1", {}, tk.name), h("span", { class: "badge" }, h("span", { class: `dot ${cls}` }), text), bmadPill(tk), controlledPill(tk),
+      tk.github_repo ? link(`https://github.com/${tk.github_repo}`, h("span", { class: "mono small" }, tk.github_repo)) : "");
   }
   const rows = s.tickets.filter((x) => x.target === p.name && !x.archived);
-  ticketList($("pj-tickets"), rows, { key: ["project", p.name], showTarget: false, empty: "Bu projede açık ticket yok." });
-  renderPulls(t, rows);
+  ticketList($("pj-tickets"), rows, { key: ["project", p.name], showTarget: false, empty: t("Bu projede açık ticket yok.") });
+  renderPulls(tk, rows);
   // Progress follows the tickets (the server writes it); a draft being written is asked after more often.
   if (Date.now() - (p.roadAt || 0) > (p.roadmap?.draft?.running ? 4000 : 30000)) loadRoadmap();
-  renderRoadmap(t);
+  renderRoadmap(tk);
   const docSig = JSON.stringify([p.state?.project_doc, p.state?.base, p.error, rows.filter((x) => x.type === "project").map((x) => [x.id, x.status, x.running])]);
   if (!force && docSig === $("pj-doc").dataset.sig) return;
   $("pj-doc").dataset.sig = docSig;
-  $("pj-base").textContent = p.state ? `${p.state.base} dalından` : "";
+  $("pj-base").textContent = p.state ? t("{0} dalından", p.state.base) : "";
   if (!p.state) {
-    $("pj-doc").replaceChildren(empty(p.error || "Proje belgesi okunuyor…", p.error ? "alert" : "clock"));
+    $("pj-doc").replaceChildren(empty(p.error || t("Proje belgesi okunuyor…"), p.error ? "alert" : "clock"));
     return;
   }
-  $("pj-doc").replaceChildren(docCard(t, p.state.project_doc || {}, rows.filter((x) => x.type === "project")));
+  $("pj-doc").replaceChildren(docCard(tk, p.state.project_doc || {}, rows.filter((x) => x.type === "project")));
 }
 
 // --- the project's roadmap: phases with progress, items with their ticket and PR, "Ticket aç" on the next ones ---
@@ -3272,57 +3334,57 @@ function renderProject(s, force) {
 // Without one: "Yol haritası çıkar" (a read-only draft session), the draft in an editor, "Taslak olarak kaydet".
 
 const ROAD_ITEM = {
-  todo: ["yapılacak", "mute"], ticket: ["ticket açıldı", "info"], "in-progress": ["sürüyor", "info"], review: ["incelemede", "warn"],
-  pr: ["PR açık", "info"], merged: ["birleşti", "ok"], done: ["bitti", "ok"],
+  todo: [t("yapılacak"), "mute"], ticket: [t("ticket açıldı"), "info"], "in-progress": [t("sürüyor"), "info"], review: [t("incelemede"), "warn"],
+  pr: [t("PR açık"), "info"], merged: [t("birleşti"), "ok"], done: [t("bitti"), "ok"],
 };
-const ROAD_PHASE = { todo: ["sırada", "mute"], active: ["aktif", "volt"], done: ["bitti", "ok"] };
-const ROAD_WHERE = { vault: (r) => `kasa: ${r.vault_dir}`, override: () => "özel klasör", state: () => "Ziggy durumu", bmad: () => "BMad" };
+const ROAD_PHASE = { todo: [t("sırada"), "mute"], active: [t("aktif"), "volt"], done: [t("bitti"), "ok"] };
+const ROAD_WHERE = { vault: (r) => t("kasa: {0}", r.vault_dir), override: () => t("özel klasör"), state: () => t("Ziggy durumu"), bmad: () => "BMad" };
 const roadEditing = () => { const ta = $("pj-roadmap").querySelector("textarea"); return !!ta && (document.activeElement === ta || ta.value !== ta.dataset.orig); };
 
-function renderRoadmap(t) {
+function renderRoadmap(tk) {
   const p = project;
   const r = p.roadmap;
   const linked = (r?.phases || []).flatMap((ph) => ph.items.filter((it) => it.ticket).map((it) => {
-    const row = rowOf(t.name, it.ticket);
+    const row = rowOf(tk.name, it.ticket);
     return [it.ticket, row?.status, row?.running];
   }));
-  const sig = JSON.stringify([r, p.roadError, !!t.bmad?.installed, linked]);
+  const sig = JSON.stringify([r, p.roadError, !!tk.bmad?.installed, linked]);
   const box = $("pj-roadmap");
   if (sig === box.dataset.sig || roadEditing()) return;  // never under a cursor: the draft may be half edited
   box.dataset.sig = sig;
   $("pj-road-where").textContent = r?.source ? `${ROAD_WHERE[r.where]?.(r) || r.where} · ${homeShort(r.path)}` : "";
   $("pj-road-where").title = r?.path || "";
   if (!r) {
-    box.replaceChildren(empty(p.roadError || "Yol haritası okunuyor…", p.roadError ? "alert" : "clock"));
+    box.replaceChildren(empty(p.roadError || t("Yol haritası okunuyor…"), p.roadError ? "alert" : "clock"));
     return;
   }
   const parts = [];
-  if (r.shadowed) parts.push(h("p", { class: "muted small road-note" }, `Hafızadaki ${homeShort(r.shadowed)} de var; BMad'in epics.md'si kullanılıyor (iki kaynak olunca BMad kazanır).`));
+  if (r.shadowed) parts.push(h("p", { class: "muted small road-note" }, t("Hafızadaki {0} de var; BMad'in epics.md'si kullanılıyor (iki kaynak olunca BMad kazanır).", homeShort(r.shadowed))));
   if (r.warnings?.length) {
     parts.push(h("div", { class: "notice mem-warnings" }, icon("alert"),
-      h("div", { class: "grow" }, h("strong", {}, "Yol haritasında okunamayan yerler var"),
-        h("ul", { class: "mem-warning-list small" }, r.warnings.map((w) => h("li", {}, w))))));
+      h("div", { class: "grow" }, h("strong", {}, t("Yol haritasında okunamayan yerler var")),
+        h("ul", { class: "mem-warning-list small" }, r.warnings.map((w) => h("li", {}, t(w)))))));
   }
-  if (!r.source) parts.push(...roadmapEmpty(t, r));
-  else if (!r.phases.length) parts.push(empty("Yol haritasında evre yok.", "spec"));
-  else parts.push(h("div", { class: "road-phases" }, r.phases.map((ph) => roadPhase(t, r, ph))));
+  if (!r.source) parts.push(...roadmapEmpty(tk, r));
+  else if (!r.phases.length) parts.push(empty(t("Yol haritasında evre yok."), "spec"));
+  else parts.push(h("div", { class: "road-phases" }, r.phases.map((ph) => roadPhase(tk, r, ph))));
   box.replaceChildren(...parts);
 }
 
-function roadPhase(t, r, ph) {
+function roadPhase(tk, r, ph) {
   const [label, cls] = ROAD_PHASE[ph.status] || [ph.status, "mute"];
   const pct = ph.total ? (100 * ph.done) / ph.total : 0;
   return h("section", { class: `stage-card road-phase ${ph.id === r.current ? "current" : ""} ${ph.status}` },
     h("div", { class: "row tight wrap" }, h("span", { class: "tag" }, ph.id), h("strong", { class: "grow road-title" }, ph.title),
       h("span", { class: `pill ${cls}` }, label), h("span", { class: "muted small mono nowrap" }, `${ph.done}/${ph.total}`)),
     h("div", { class: "hbar", role: "progressbar", "aria-valuemin": "0", "aria-valuemax": String(ph.total), "aria-valuenow": String(ph.done),
-      "aria-label": `${ph.id} ilerleme` }, h("div", { class: "hbar-fill", style: `width:${pct.toFixed(1)}%;background:var(--ok)` })),
-    ph.items.length ? h("ul", { class: "road-items" }, ph.items.map((it) => roadItem(t, r, ph, it))) : h("p", { class: "muted small" }, "Bu evrede madde yok."));
+      "aria-label": t("{0} ilerleme", ph.id) }, h("div", { class: "hbar-fill", style: `width:${pct.toFixed(1)}%;background:var(--ok)` })),
+    ph.items.length ? h("ul", { class: "road-items" }, ph.items.map((it) => roadItem(tk, r, ph, it))) : h("p", { class: "muted small" }, t("Bu evrede madde yok.")));
 }
 
-function roadItem(t, r, ph, it) {
+function roadItem(tk, r, ph, it) {
   const [label, cls] = ROAD_ITEM[it.status] || [it.status, "mute"];
-  const row = it.ticket ? rowOf(t.name, it.ticket) : null;
+  const row = it.ticket ? rowOf(tk.name, it.ticket) : null;
   const next = r.next?.includes(it.id);
   return h("li", { class: `road-item ${it.status}` + (next ? " next" : "") },
     h("div", { class: "road-item-head" },
@@ -3331,51 +3393,51 @@ function roadItem(t, r, ph, it) {
         h("span", { class: `pill ${cls}` }, label),
         it.ticket ? (row ? h("button", { class: "small", onclick: () => openDrawer(row) }, icon("ticket"), it.ticket) : h("span", { class: "chip mono" }, it.ticket)) : "",
         it.pr ? link(it.pr, chip("pr", "PR #" + it.pr.split("/").pop(), "linked")) : "",
-        it.status === "todo" && !it.ticket ? h("button", { class: `small ${next ? "primary" : ""}`, title: "Composer'ı bu maddeyle doldurur; oluşturmak senin elinde",
-          onclick: () => roadmapTicket(t.name, ph, it) }, icon("plus"), "Ticket aç") : "")),
+        it.status === "todo" && !it.ticket ? h("button", { class: `small ${next ? "primary" : ""}`, title: t("Composer'ı bu maddeyle doldurur; oluşturmak senin elinde"),
+          onclick: () => roadmapTicket(tk.name, ph, it) }, icon("plus"), t("Ticket aç")) : "")),
     it.detail ? h("div", { class: "muted small road-detail" }, it.detail) : "");
 }
 
-function roadmapEmpty(t, r) {
-  if (t.bmad?.installed) {
-    return [empty("Bu projede BMad kurulu ama epics.md yok. BMad'in epic ve hikâye akışıyla (create-epics-and-stories) _bmad-output/planning-artifacts/epics.md'yi oluştur; Ziggy onu ve sprint-status.yaml'ı yol haritası olarak okur.", "spec")];
+function roadmapEmpty(tk, r) {
+  if (tk.bmad?.installed) {
+    return [empty(t("Bu projede BMad kurulu ama epics.md yok. BMad'in epic ve hikâye akışıyla (create-epics-and-stories) _bmad-output/planning-artifacts/epics.md'yi oluştur; Ziggy onu ve sprint-status.yaml'ı yol haritası olarak okur."), "spec")];
   }
   const d = r.draft;
   const start = (label, cls) => h("button", { class: cls || "", onclick: async (e) => {
     e.currentTarget.disabled = true;
     try {
-      await api(`/api/targets/${encodeURIComponent(t.name)}/roadmap/draft`, {});
-      toast(`${t.name}: yol haritası taslağı yazılıyor`);
+      await api(`/api/targets/${encodeURIComponent(tk.name)}/roadmap/draft`, {});
+      toast(t("{0}: yol haritası taslağı yazılıyor", tk.name));
     } catch (err) {
       toast(err.message, true);
     }
     await loadRoadmap();
   } }, icon("play"), label);
-  const cost = `${r.model} · en çok $1 · salt okunur: README, docs/PROJECT.md, specler ve hafızadaki bağlam ile kararlar`;
+  const cost = t("{0} · en çok $1 · salt okunur: README, docs/PROJECT.md, specler ve hafızadaki bağlam ile kararlar", r.model);
   if (!d) {
     return [h("div", { class: "stage-card road-empty" },
-      h("strong", {}, "Bu projenin yol haritası yok"),
-      h("p", { class: "muted small" }, "Evreler ve maddeleri: her sabah sıradaki maddeler önerilir, her madde bir ticket olur. Taslağı bir ajan çıkarır; sen düzenleyip kaydedene kadar hiçbir şey yazılmaz."),
-      h("div", { class: "row tight wrap" }, start("Yol haritası çıkar", "primary"), h("span", { class: "muted small" }, cost)))];
+      h("strong", {}, t("Bu projenin yol haritası yok")),
+      h("p", { class: "muted small" }, t("Evreler ve maddeleri: her sabah sıradaki maddeler önerilir, her madde bir ticket olur. Taslağı bir ajan çıkarır; sen düzenleyip kaydedene kadar hiçbir şey yazılmaz.")),
+      h("div", { class: "row tight wrap" }, start(t("Yol haritası çıkar"), "primary"), h("span", { class: "muted small" }, cost)))];
   }
-  if (d.running) return [h("div", { class: "stage-card road-empty" }, h("div", { class: "row tight" }, h("span", { class: "dot live" }), h("strong", {}, "Taslak yazılıyor…"),
+  if (d.running) return [h("div", { class: "stage-card road-empty" }, h("div", { class: "row tight" }, h("span", { class: "dot live" }), h("strong", {}, t("Taslak yazılıyor…")),
     h("span", { class: "muted small" }, d.started_at ? ago(d.started_at) : "")), h("p", { class: "muted small" }, cost))];
   if (!d.draft) {
     return [h("div", { class: "stage-card road-empty" },
-      h("div", { class: "row tight" }, h("span", { class: "pill bad" }, STATE_TR[d.state] || d.state || "hata"), h("strong", {}, "Taslak çıkmadı")),
+      h("div", { class: "row tight" }, h("span", { class: "pill bad" }, STATE_TR[d.state] || d.state || t("hata")), h("strong", {}, t("Taslak çıkmadı"))),
       d.error ? h("pre", { class: "small road-error" }, d.error) : "",
-      h("div", { class: "row tight wrap" }, start("Yeniden dene", "primary"), h("span", { class: "muted small" }, cost)))];
+      h("div", { class: "row tight wrap" }, start(t("Yeniden dene"), "primary"), h("span", { class: "muted small" }, cost)))];
   }
-  const ta = h("textarea", { class: "answer-box mono road-draft", rows: 18, spellcheck: "false", "aria-label": "Yol haritası taslağı" });
+  const ta = h("textarea", { class: "answer-box mono road-draft", rows: 18, spellcheck: "false", "aria-label": t("Yol haritası taslağı") });
   ta.value = d.draft;
   ta.dataset.orig = d.draft;
   const save = h("button", { class: "primary", onclick: async (e) => {
-    if (!ta.value.trim()) return toast("Taslak boş", true);
+    if (!ta.value.trim()) return toast(t("Taslak boş"), true);
     e.currentTarget.disabled = true;
     try {
-      project.roadmap = await api(`/api/targets/${encodeURIComponent(t.name)}/roadmap/save`, { text: ta.value });
+      project.roadmap = await api(`/api/targets/${encodeURIComponent(tk.name)}/roadmap/save`, { text: ta.value });
       ta.dataset.orig = ta.value;
-      toast(`${t.name}: yol haritası kaydedildi`);
+      toast(t("{0}: yol haritası kaydedildi", tk.name));
     } catch (err) {
       toast(err.message, true);
       e.currentTarget.disabled = false;
@@ -3384,30 +3446,30 @@ function roadmapEmpty(t, r) {
     ta.blur();
     $("pj-roadmap").dataset.sig = "";
     renderProject(snapshot, true);
-  } }, icon("check"), "Taslak olarak kaydet");
+  } }, icon("check"), t("Taslak olarak kaydet"));
   return [h("div", { class: "stage-card road-empty" },
-    h("div", { class: "row tight wrap" }, h("span", { class: "pill volt" }, "taslak"), h("strong", { class: "grow" }, d.summary || "Yol haritası taslağı"),
+    h("div", { class: "row tight wrap" }, h("span", { class: "pill volt" }, t("taslak")), h("strong", { class: "grow" }, d.summary || t("Yol haritası taslağı")),
       d.cost != null ? h("span", { class: "muted small mono" }, money(d.cost)) : ""),
     d.notes?.length ? h("ul", { class: "small muted road-notes" }, d.notes.map((n) => h("li", {}, n))) : "",
-    h("p", { class: "muted small" }, `Düzenle, sonra kaydet: ${homeShort(r.memory_path)} olur. "## P1 · başlık" bir evre, "- [ ] R-1 · başlık" bir madde, altındaki girintili satır ayrıntısı.`),
+    h("p", { class: "muted small" }, t("Düzenle, sonra kaydet: {0} olur. \"## P1 · başlık\" bir evre, \"- [ ] R-1 · başlık\" bir madde, altındaki girintili satır ayrıntısı.", homeShort(r.memory_path))),
     ta,
-    h("div", { class: "row tight wrap" }, save, start("Yeniden çıkar", "ghost")))];
+    h("div", { class: "row tight wrap" }, save, start(t("Yeniden çıkar"), "ghost")))];
 }
 
 function docCard(target, doc, docTickets) {
   const active = docTickets.find((x) => x.status !== "done" || x.running);
   const actions = [];
-  if (doc.exists) actions.push(h("button", { class: "small", onclick: () => openDoc("PROJECT.md", doc.path, doc.text || "") }, icon("spec"), "Oku"));
+  if (doc.exists) actions.push(h("button", { class: "small", onclick: () => openDoc("PROJECT.md", doc.path, doc.text || "") }, icon("spec"), t("Oku")));
   if (active) actions.push(h("button", { class: "small", onclick: () => openDrawer(active) }, icon("ticket"), active.id));
-  else actions.push(h("button", { class: "small ghost", onclick: () => showProposal({ type: "project", title: doc.exists ? "Update PROJECT.md" : "Write PROJECT.md", reason: "Proje belgesini sen seçtin.", text: $("pj-text").value.trim() }) },
-    icon(doc.exists ? "retry" : "play"), doc.exists ? "Güncelle" : "Yaz"));
+  else actions.push(h("button", { class: "small ghost", onclick: () => showProposal({ type: "project", title: doc.exists ? "Update PROJECT.md" : "Write PROJECT.md", reason: t("Proje belgesini sen seçtin."), text: $("pj-text").value.trim() }) },
+    icon(doc.exists ? "retry" : "play"), doc.exists ? t("Güncelle") : t("Yaz")));
   return h("div", { class: `stage-card doc-card ${doc.exists ? "final" : ""}` },
     h("div", { class: "row tight" }, h("strong", {}, "PROJECT.md"),
-      h("span", { class: `pill ${doc.exists ? "ok" : "mute"}` }, doc.exists ? "base dalında var" : "yok"),
-      h("span", { class: "grow" }), active ? h("span", { class: "muted small" }, active.running ? "çalışıyor" : STATUS_TR[active.status] || active.status) : ""),
+      h("span", { class: `pill ${doc.exists ? "ok" : "mute"}` }, doc.exists ? t("base dalında var") : t("yok")),
+      h("span", { class: "grow" }), active ? h("span", { class: "muted small" }, active.running ? t("çalışıyor") : STATUS_TR[active.status] || active.status) : ""),
     h("div", { class: "muted small mono" }, doc.path || "docs/PROJECT.md"),
-    doc.exists ? h("div", { class: "muted small" }, doc.sha ? h("span", { class: "mono" }, doc.sha.slice(0, 7)) : "", doc.subject ? ` · ${doc.subject}` : "", doc.date ? ` · ${when(doc.date)}` : "", doc.lines ? ` · ${doc.lines} satır` : "")
-      : h("div", { class: "muted small" }, "Ürünün ne olduğu, kapsamı ve kararları burada durur; ajanlar her aşamada okur. 'project' tipinde bir ticket yazar ve PR açar."),
+    doc.exists ? h("div", { class: "muted small" }, doc.sha ? h("span", { class: "mono" }, doc.sha.slice(0, 7)) : "", doc.subject ? ` · ${doc.subject}` : "", doc.date ? ` · ${when(doc.date)}` : "", doc.lines ? " · " + plural(t("{0} satır"), doc.lines) : "")
+      : h("div", { class: "muted small" }, t("Ürünün ne olduğu, kapsamı ve kararları burada durur; ajanlar her aşamada okur. 'project' tipinde bir ticket yazar ve PR açar.")),
     h("div", { class: "row tight wrap" }, actions));
 }
 
@@ -3425,16 +3487,16 @@ function renderPulls(target, rows) {
     return;
   }
   if (!p.pulls) {
-    box.replaceChildren(empty("PR'lar okunuyor…", "clock"));
+    box.replaceChildren(empty(t("PR'lar okunuyor…"), "clock"));
     return;
   }
   if (!p.pulls.length) {
-    box.replaceChildren(empty("Bu projede açık PR yok.", "pr"));
+    box.replaceChildren(empty(t("Bu projede açık PR yok."), "pr"));
     return;
   }
   box.replaceChildren(...p.pulls.map((pr) => {
     const row = pr.ticket && rows.find((x) => x.id === pr.ticket);
-    const who = pr.mine ? "sen" : pr.author.replace(/^app\//, "");
+    const who = pr.mine ? t("sen") : pr.author.replace(/^app\//, "");
     const meta = h("div", { class: "muted small row tight wrap" },
       h("span", {}, who), h("span", { class: "mono" }, `${pr.head} → ${pr.base}`), h("span", {}, ago(pr.updated_at)),
       pr.draft ? h("span", { class: "pill mute" }, "draft") : "", pr.fork ? h("span", { class: "pill warn" }, "fork") : "");
@@ -3449,7 +3511,7 @@ function renderPulls(target, rows) {
     } else {
       actions.push(h("button", { class: "small", onclick: () => adoptPull(target, pr) }, icon("eye"), "Codex review"));
     }
-    actions.push(h("a", { class: "button small ghost", href: pr.url, target: "_blank", rel: "noopener noreferrer", "aria-label": `PR #${pr.number} GitHub'da`, title: "GitHub'da aç" }, icon("external")));
+    actions.push(h("a", { class: "button small ghost", href: pr.url, target: "_blank", rel: "noopener noreferrer", "aria-label": t("PR #{0} GitHub'da", pr.number), title: t("GitHub'da aç") }, icon("external")));
     return h("div", { class: "story pull" },
       h("span", { class: "decision-n" }, `#${pr.number}`),
       h("div", { class: "story-body" }, h("strong", {}, pr.title), meta),
@@ -3458,11 +3520,11 @@ function renderPulls(target, rows) {
 }
 
 async function adoptPull(target, pr) {
-  const owner = pr.mine ? "" : `\nPR ${pr.author.replace(/^app\//, "")} kullanıcısının; review dala dokunmaz, düzeltmeleri push etmeden önce ayrıca sorulur.`;
-  if (!(await confirmBox(`${target.name}: PR #${pr.number} — "${pr.title}" Codex'e review ettirilsin mi?\nPR, pr-${pr.number} ticket'ı olur (kendi worktree'si); ${pr.base}'e göre fark incelenir (1–3 dk).${owner}`))) return;
+  const owner = pr.mine ? "" : t("\nPR {0} kullanıcısının; review dala dokunmaz, düzeltmeleri push etmeden önce ayrıca sorulur.", pr.author.replace(/^app\//, ""));
+  if (!(await confirmBox(t("{0}: PR #{1} — \"{2}\" Codex'e review ettirilsin mi?\nPR, pr-{3} ticket'ı olur (kendi worktree'si); {4}'e göre fark incelenir (1–3 dk).{5}", target.name, pr.number, pr.title, pr.number, pr.base, owner)))) return;
   try {
     const out = await api(`/api/targets/${encodeURIComponent(target.name)}/pulls`, { number: pr.number, review: true });
-    toast(`${out.ticket.id}: Codex review başladı`);
+    toast(t("{0}: Codex review başladı", out.ticket.id));
     await refresh();
     await loadPulls(false);
   } catch (err) {
@@ -3483,10 +3545,10 @@ $("doc-modal").addEventListener("click", (e) => { if (e.target === e.currentTarg
 $("pj-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   const text = $("pj-text").value.trim();
-  if (!text) return toast("Önce ne yapmak istediğini yaz", true);
+  if (!text) return toast(t("Önce ne yapmak istediğini yaz"), true);
   const btn = $("pj-route");
   btn.disabled = true;
-  $("pj-proposal").replaceChildren(h("div", { class: "proposal muted" }, h("span", { class: "dot live" }), "Nasıl bir ticket gerektiğine bakılıyor…"));
+  $("pj-proposal").replaceChildren(h("div", { class: "proposal muted" }, h("span", { class: "dot live" }), t("Nasıl bir ticket gerektiğine bakılıyor…")));
   try {
     const r = await api(`/api/targets/${encodeURIComponent(project.name)}/route`, { text });
     if (r.state) { project.state = r.state; project.at = Date.now(); renderProject(snapshot, true); }
@@ -3498,18 +3560,18 @@ $("pj-form").addEventListener("submit", async (e) => {
 });
 
 function showProposal(p) {
-  const kind = h("select", { "aria-label": "Tip" }, TYPE_OPTIONS.map(([v, label]) => h("option", { value: v, selected: v === p.type }, label)));
-  const title = h("input", { class: "grow", value: p.title || "", placeholder: "Ticket başlığı", "aria-label": "Ticket başlığı" });
-  const body = h("textarea", { rows: 3, placeholder: "Ayrıntı (isteğe bağlı): ajan bunu talep olarak okur", "aria-label": "Ayrıntı" });
+  const kind = h("select", { "aria-label": t("Tip") }, TYPE_OPTIONS.map(([v, label]) => h("option", { value: v, selected: v === p.type }, label)));
+  const title = h("input", { class: "grow", value: p.title || "", placeholder: t("Ticket başlığı"), "aria-label": t("Ticket başlığı") });
+  const body = h("textarea", { rows: 3, placeholder: t("Ayrıntı (isteğe bağlı): ajan bunu talep olarak okur"), "aria-label": t("Ayrıntı") });
   body.value = p.text || "";
   const start = h("button", { class: "primary", onclick: async () => {
-    if (!title.value.trim()) return toast("Başlık boş", true);
+    if (!title.value.trim()) return toast(t("Başlık boş"), true);
     const type = kind.value;
-    if (!(await confirmBox(`${project.name}: "${title.value.trim()}" (${type}) ticket'ı açılıp koşsun mu?\n${pipelineFor(type)} hattı aşama aşama koşar; birkaç dolar, 10–30 dk.`))) return;
+    if (!(await confirmBox(t("{0}: \"{1}\" ({2}) ticket'ı açılıp koşsun mu?\n{3} hattı aşama aşama koşar; birkaç dolar, 10–30 dk.", project.name, title.value.trim(), type, pipelineFor(type))))) return;
     start.disabled = true;
     try {
       const out = await api("/api/new", { target: project.name, type, title: title.value.trim(), body: body.value, run: true, language: $("pj-lang").value });
-      toast(out.job?.queued ? `${out.ticket.id} kuyruğa alındı; koşu slotları boşalınca başlar` : `${out.ticket.id} başladı`);
+      toast(out.job?.queued ? t("{0} kuyruğa alındı; koşu slotları boşalınca başlar", out.ticket.id) : t("{0} başladı", out.ticket.id));
       $("pj-proposal").replaceChildren();
       $("pj-text").value = "";
       await refresh();
@@ -3520,30 +3582,30 @@ function showProposal(p) {
       toast(err.message, true);
       start.disabled = false;
     }
-  } }, icon("check"), "Onayla ve başlat");
+  } }, icon("check"), t("Onayla ve başlat"));
   $("pj-proposal").replaceChildren(h("div", { class: "proposal" },
-    h("div", { class: "row tight" }, icon("zap"), h("strong", {}, "Öneri"), h("span", { class: "muted small grow" }, p.reason || "")),
+    h("div", { class: "row tight" }, icon("zap"), h("strong", {}, t("Öneri")), h("span", { class: "muted small grow" }, p.reason || "")),
     h("div", { class: "row" }, kind, title),
     body,
-    h("div", { class: "row end" }, h("button", { class: "ghost", onclick: () => $("pj-proposal").replaceChildren() }, "Vazgeç"), start)));
+    h("div", { class: "row end" }, h("button", { class: "ghost", onclick: () => $("pj-proposal").replaceChildren() }, t("Vazgeç")), start)));
   title.focus();
 }
 
-$("pj-lang").addEventListener("change", () => store.set(localStorage, "ziggy.lang", $("pj-lang").value || "-"));
+$("pj-lang").addEventListener("change", () => store.set(localStorage, "ziggy.ticketlang", $("pj-lang").value || "-"));
 
 // --- Sohbet ---------------------------------------------------------------------------------------
 // Free chats about a project (talk.py): "okuyan" in the main checkout, "yazan" in a worktree of its own on
 // chat/<id>. #talk/<target>, #talk/<target>/<id>, #talk/<target>/new?mode=write. The conversation itself is
 // chat.js's, through a conv adapter; a new chat exists once its first message is sent.
 
-const TALK_MODE = { read: "okuyan", write: "yazan" };
+const TALK_MODE = { read: t("okuyan"), write: t("yazan") };
 const talkHash = (target, id, mode) => `#talk/${enc(target)}${id ? `/${id}` : mode ? `/new?mode=${mode}` : ""}`;
 const talk = { key: null, list: null, listAt: 0, target: null, view: null, viewSig: null };
 
 function talkRoute() {
   const [path, query] = location.hash.slice(1).split("?");
   const [, target, id] = path.split("/");
-  const live = (snapshot?.targets || []).filter((t) => !t.error).map((t) => t.name);
+  const live = (snapshot?.targets || []).filter((tk) => !tk.error).map((tk) => tk.name);
   const name = decodeURIComponent(target || "");
   return {
     target: live.includes(name) ? name : (live.includes(homeTarget()) ? homeTarget() : live[0] || ""),
@@ -3563,12 +3625,12 @@ async function openTalk() {
   if (!snapshot) return;  // the first refresh opens it
   const route = talkRoute();
   const sel = $("talk-target");
-  const live = snapshot.targets.filter((t) => !t.error).map((t) => t.name);
+  const live = snapshot.targets.filter((tk) => !tk.error).map((tk) => tk.name);
   if ([...sel.options].map((o) => o.value).join() !== live.join()) sel.replaceChildren(...live.map((n) => h("option", { value: n }, n)));
   sel.value = route.target;
   $("talk-new-read").href = talkHash(route.target, null, "read");
   $("talk-new-write").href = talkHash(route.target, null, "write");
-  if (!route.target) { $("talk-chat").replaceChildren(empty("Önce bir proje ekle.", "box")); return; }
+  if (!route.target) { $("talk-chat").replaceChildren(empty(t("Önce bir proje ekle."), "box")); return; }
   await loadTalkList(route.target, talk.key !== location.hash);
   renderTalkList(route);
   const key = location.hash;
@@ -3590,9 +3652,9 @@ function renderTalkList(route) {
   box.dataset.sig = sig;
   box.replaceChildren(...(chats.length ? chats.map((c) => h("li", {},
     h("a", { class: "talk-item" + (c.id === route.id ? " on" : ""), href: talkHash(route.target, c.id), "aria-current": c.id === route.id ? "page" : null },
-      h("span", { class: "talk-item-title" }, c.live ? h("span", { class: "dot live" }) : "", c.title || "(boş sohbet)"),
-      h("span", { class: "muted small" }, `${TALK_MODE[c.mode]} · ${c.turns} mesaj · ${ago(c.updated_at)}`))))
-    : [h("li", { class: "muted small" }, "Henüz sohbet yok.")]));
+      h("span", { class: "talk-item-title" }, c.live ? h("span", { class: "dot live" }) : "", c.title || t("(boş sohbet)")),
+      h("span", { class: "muted small" }, `${TALK_MODE[c.mode]} · ${plural(t("{0} mesaj"), c.turns)} · ${ago(c.updated_at)}`))))
+    : [h("li", { class: "muted small" }, t("Henüz sohbet yok."))]));
 }
 
 function renderTalkHead(route) {
@@ -3601,15 +3663,15 @@ function renderTalkHead(route) {
   const mode = c?.mode || route.mode;
   const changes = v?.changes;
   const where = mode === "write"
-    ? (c?.worktree ? h("span", { class: "muted small mono" }, icon("branch"), c.branch, changes ? ` · ${changes.ahead} commit · ${changes.dirty.length} değişmiş dosya` : "")
-      : h("span", { class: "muted small" }, "İlk mesajla kendi worktree'si açılır (chat/<id> dalı, prepare komutlarıyla)."))
-    : h("span", { class: "muted small" }, "Ana checkout'u okur; dosya değiştirmez, komut çalıştırmaz.");
+    ? (c?.worktree ? h("span", { class: "muted small mono" }, icon("branch"), c.branch, changes ? t(" · {0} commit · {1} değişmiş dosya", changes.ahead, changes.dirty.length) : "")
+      : h("span", { class: "muted small" }, t("İlk mesajla kendi worktree'si açılır (chat/<id> dalı, prepare komutlarıyla).")))
+    : h("span", { class: "muted small" }, t("Ana checkout'u okur; dosya değiştirmez, komut çalıştırmaz."));
   $("talk-head").replaceChildren(h("div", { class: "row tight wrap" },
-    h("strong", { class: "grow talk-title" }, c?.title || (mode === "write" ? "Yeni yazan sohbet" : "Yeni okuyan sohbet")),
+    h("strong", { class: "grow talk-title" }, c?.title || (mode === "write" ? t("Yeni yazan sohbet") : t("Yeni okuyan sohbet"))),
     h("span", { class: `pill ${mode === "write" ? "warn" : "mute"}` }, TALK_MODE[mode]),
-    route.id ? h("button", { class: "small", type: "button", title: "Sohbetten bir ticket taslağı: composer'da düzenleyip oluşturursun",
-      onclick: () => talkToTicket(route) }, icon("ticket"), "Ticket'a çevir") : "",
-    route.id ? h("button", { class: "small ghost", type: "button", onclick: (e) => deleteTalk(e.currentTarget, route) }, icon("x"), "Sil") : ""),
+    route.id ? h("button", { class: "small", type: "button", title: t("Sohbetten bir ticket taslağı: composer'da düzenleyip oluşturursun"),
+      onclick: () => talkToTicket(route) }, icon("ticket"), t("Ticket'a çevir")) : "",
+    route.id ? h("button", { class: "small ghost", type: "button", onclick: (e) => deleteTalk(e.currentTarget, route) }, icon("x"), t("Sil")) : ""),
   where);
 }
 
@@ -3619,18 +3681,18 @@ function talkConv(route) {
   const mode = () => talk.view?.chat?.mode || route.mode;
   return {
     key: `talk/${route.target}/${route.id || "new"}`, draftKey: `ziggy.talk.${route.target}.${route.id || `new-${route.mode}`}`,
-    threads: false, placeholder: `${route.target} hakkında yaz…`,
+    threads: false, placeholder: t("{0} hakkında yaz…", route.target),
     // An existing chat's mode and title come with its first load, after the tab is built.
     get writes() { return mode() === "write"; },
-    get title() { return talk.view?.chat?.title || "Sohbet"; },
+    get title() { return talk.view?.chat?.title || t("Sohbet"); },
     empty: mode() === "write"
-      ? `${route.target} üzerinde kendi worktree'sinde çalışan bir Claude oturumu: dosya düzenler, komut çalıştırır, commit atar.`
-      : `${route.target} hakkında her şeyi sorabilirsin: kod nasıl çalışıyor, bir issue ne diyor, nereden başlanır.`,
+      ? t("{0} üzerinde kendi worktree'sinde çalışan bir Claude oturumu: dosya düzenler, komut çalıştırır, commit atar.", route.target)
+      : t("{0} hakkında her şeyi sorabilirsin: kod nasıl çalışıyor, bir issue ne diyor, nereden başlanır.", route.target),
     suggestions: () => mode() === "write"
-      ? ["Bu repo nasıl kurulu, testler nasıl koşuyor?", "Bana atanmış açık issue'ları listele."]
-      : ["Bu projenin mimarisini özetle.", "Bana atanmış açık issue'ları listele.", "Son değişiklikler neler?"],
-    info: () => mode() === "write" ? "Yanıtlar bu sohbetin worktree'sinde çalışan bir Claude oturumundan gelir; push edemez."
-      : "Yanıtlar salt-okunur bir Claude oturumundan gelir; dosya değiştirmez.",
+      ? [t("Bu repo nasıl kurulu, testler nasıl koşuyor?"), t("Bana atanmış açık issue'ları listele.")]
+      : [t("Bu projenin mimarisini özetle."), t("Bana atanmış açık issue'ları listele."), t("Son değişiklikler neler?")],
+    info: () => mode() === "write" ? t("Yanıtlar bu sohbetin worktree'sinde çalışan bir Claude oturumundan gelir; push edemez.")
+      : t("Yanıtlar salt-okunur bir Claude oturumundan gelir; dosya değiştirmez."),
     load: async (since) => {
       if (!route.id) return { turns: [], live: false, live_turn: null, truncated: false, models: known().models, model: known().model, cwd: "main" };
       const data = await api(`${base}/${route.id}` + (since ? `?since=${enc(since)}` : ""));
@@ -3645,7 +3707,7 @@ function talkConv(route) {
       location.hash = talkHash(route.target, out.chat.id);
       return out;
     },
-    stop: () => api(`${base}/${route.id}`, { action: "stop" }).then(() => toast("Yanıt durduruluyor")),
+    stop: () => api(`${base}/${route.id}`, { action: "stop" }).then(() => toast(t("Yanıt durduruluyor"))),
   };
 }
 
@@ -3665,17 +3727,17 @@ async function talkToTicket(route) {
 
 async function deleteTalk(btn, route) {
   const write = talk.view?.chat?.mode === "write";
-  if (!(await confirmBox(`Bu sohbet silinsin mi?${write ? "\n\nWorktree'si ve chat dalı da silinir." : ""}`))) return;
+  if (!(await confirmBox(t("Bu sohbet silinsin mi?{0}", write ? t("\n\nWorktree'si ve chat dalı da silinir.") : "")))) return;
   btn.disabled = true;
   const base = `/api/talk/${enc(route.target)}/${route.id}`;
   try {
     await api(base, { action: "delete" });
   } catch (e) {
     // A branch with work on it asks once more, naming what would go.
-    if (!/still holds work/.test(e.message) || !(await confirmBox(`${e.message}\n\nYine de silinsin mi?`))) { toast(e.message, true); btn.disabled = false; return; }
+    if (!/still holds work/.test(e.message) || !(await confirmBox(t("{0}\n\nYine de silinsin mi?", e.message)))) { toast(e.message, true); btn.disabled = false; return; }
     try { await api(base, { action: "delete", force: true }); } catch (e2) { toast(e2.message, true); btn.disabled = false; return; }
   }
-  toast("Sohbet silindi");
+  toast(t("Sohbet silindi"));
   talk.listAt = 0;
   location.hash = talkHash(route.target);
 }
@@ -3783,20 +3845,20 @@ async function projectDefaults() {
     // Owners: every gh account and its organizations; the value carries the acting account.
     if ($("np-owner").options.length !== (d.owners || []).length) {
       $("np-owner").replaceChildren(...(d.owners || []).map((o) => h("option", { value: `${o.owner}|${o.gh_user}` },
-        o.kind === "org" ? `${o.owner}  (organizasyon · ${o.gh_user} ile)` : `${o.owner}  (kişisel hesap)`)));
+        o.kind === "org" ? t("{0}  (organizasyon · {1} ile)", o.owner, o.gh_user) : t("{0}  (kişisel hesap)", o.owner))));
     }
     if (!$("np-owner").dataset.touched) $("np-owner").value = `${d.gh_user}|${d.gh_user}`;
     const logins = d.claude_logins || [];
     if ($("np-claude").options.length !== logins.length) {
       $("np-claude").replaceChildren(...logins.map((l) => h("option", { value: l.dir || "" },
-        `${l.dir ? homeShort(l.dir) : "Varsayılan giriş (~/.claude)"} — ${l.account || "giriş yok"}`)));
+        `${l.dir ? homeShort(l.dir) : t("Varsayılan giriş (~/.claude)")} — ${l.account || t("giriş yok")}`)));
     }
     if (!$("np-claude").dataset.touched) $("np-claude").value = d.claude_config_dir || "";
     const accounts = logins.map((l) => l.account).filter(Boolean);
     const same = accounts.length > 1 && new Set(accounts).size === 1;
     $("np-info").replaceChildren(
-      same ? h("span", { class: "pill warn" }, icon("alert"), "Bütün Claude girişleri aynı hesapta") : "",
-      same ? h("span", {}, "Kişisel hesap için terminalde: ", h("code", {}, "cd ~ && command claude /login")) : h("span", {}, "Klasöre göre önerildi; değiştirebilirsin."));
+      same ? h("span", { class: "pill warn" }, icon("alert"), t("Bütün Claude girişleri aynı hesapta")) : "",
+      same ? h("span", {}, t("Kişisel hesap için terminalde: "), h("code", {}, "cd ~ && command claude /login")) : h("span", {}, t("Klasöre göre önerildi; değiştirebilirsin.")));
   } catch (e) {
     $("np-info").textContent = e.message;
   }
@@ -3817,26 +3879,26 @@ $("project-form").addEventListener("submit", async (e) => {
   const body = { name: $("np-name").value.trim(), parent: $("np-parent").value, description: $("np-desc").value.trim(),
     owner, gh_user: ghUser, claude_config_dir: $("np-claude").value, private: $("np-private").checked };
   const where = `${homeShort(body.parent)}/${body.name}`;
-  if (!(await confirmBox(`${where} oluşturulsun mu?\n• README, AGENTS.md, docs/PROJECT.md taslağı ve .gitignore ile ilk commit main'e\n• GitHub'da ${body.owner}/${body.name} (${body.private ? "private" : "public"}) açılıp push edilir; PR'lar ${body.gh_user} hesabıyla\n• Koşular ${$("np-claude").selectedOptions[0]?.textContent || "varsayılan Claude girişi"} ile\n• Proje pipeline'a eklenir`))) return;
+  if (!(await confirmBox(t("{0} oluşturulsun mu?\n• README, AGENTS.md, docs/PROJECT.md taslağı ve .gitignore ile ilk commit main'e\n• GitHub'da {1}/{2} ({3}) açılıp push edilir; PR'lar {4} hesabıyla\n• Koşular {5} ile\n• Proje pipeline'a eklenir", where, body.owner, body.name, body.private ? "private" : "public", body.gh_user, $("np-claude").selectedOptions[0]?.textContent || t("varsayılan Claude girişi"))))) return;
   const btn = e.submitter;
   btn.disabled = true;
-  const log = h("pre", { class: "need-details" }, "başlatılıyor…");
+  const log = h("pre", { class: "need-details" }, t("başlatılıyor…"));
   $("project-result").replaceChildren(log);
   try {
     const { job } = await api("/api/projects", body);
     for (;;) {
       await new Promise((r) => setTimeout(r, 1500));
       const j = await api(`/api/jobs/${job.id}`);
-      log.textContent = j.tail || "çalışıyor…";
+      log.textContent = j.tail || t("çalışıyor…");
       if (j.state === "running") continue;
       if (j.state === "ok") {
-        toast(`${body.name} oluşturuldu ve eklendi`);
+        toast(t("{0} oluşturuldu ve eklendi", body.name));
         $("project-form").reset();
         delete $("np-owner").dataset.touched;
         delete $("np-claude").dataset.touched;
         $("project").hidden = true;
         refresh();
-      } else toast(`${body.name}: oluşturulamadı`, true);
+      } else toast(t("{0}: oluşturulamadı", body.name), true);
       break;
     }
   } catch (err) {
@@ -3853,7 +3915,7 @@ $("toggle-cleanup").addEventListener("click", async () => {
   const box = $("cleanup");
   box.hidden = !box.hidden;
   if (box.hidden) return;
-  box.replaceChildren(h("p", { class: "muted small" }, "PR durumları GitHub'dan okunuyor…"));
+  box.replaceChildren(h("p", { class: "muted small" }, t("PR durumları GitHub'dan okunuyor…")));
   let found;
   try {
     found = (await api("/api/cleanup")).candidates;
@@ -3862,7 +3924,7 @@ $("toggle-cleanup").addEventListener("click", async () => {
     return;
   }
   if (!found.length) {
-    box.replaceChildren(empty("Temizlenecek worktree yok: PR'ı olan ve worktree'si duran ticket bulunmadı."));
+    box.replaceChildren(empty(t("Temizlenecek worktree yok: PR'ı olan ve worktree'si duran ticket bulunmadı.")));
     return;
   }
   const checks = found.map((c) => {
@@ -3872,25 +3934,25 @@ $("toggle-cleanup").addEventListener("click", async () => {
   });
   const go = h("button", { class: "danger", onclick: async () => {
     const items = checks.filter(([, cb]) => cb.checked).map(([c]) => ({ target: c.target, id: c.id }));
-    if (!items.length) return toast("Seçili ticket yok", true);
-    if (!(await confirmBox(`${items.length} worktree silinsin mi?\nMerge edilmiş PR'ların yerel dalı da silinir; GitHub'daki dal, PR ve koşu kayıtları kalır.`))) return;
+    if (!items.length) return toast(t("Seçili ticket yok"), true);
+    if (!(await confirmBox(t("{0} worktree silinsin mi?\nMerge edilmiş PR'ların yerel dalı da silinir; GitHub'daki dal, PR ve koşu kayıtları kalır.", items.length)))) return;
     try {
       const { results } = await api("/api/cleanup", { items });
       const bad = results.filter((r) => !r.ok);
-      toast(bad.length ? `${results.length - bad.length} temizlendi, ${bad.length} atlandı: ${bad.map((r) => r.id + " (" + r.error + ")").join(", ")}` : `${results.length} worktree temizlendi`, bad.length > 0);
+      toast(bad.length ? t("{0} temizlendi, {1} atlandı: {2}", results.length - bad.length, bad.length, bad.map((r) => r.id + " (" + r.error + ")").join(", ")) : plural(t("{0} worktree temizlendi"), results.length), bad.length > 0);
       box.hidden = true;
       refresh();
     } catch (e) {
       toast(e.message, true);
     }
-  } }, icon("x"), "Seçilenleri temizle");
+  } }, icon("x"), t("Seçilenleri temizle"));
   box.replaceChildren(h("div", { class: "cleanup" },
-    h("div", { class: "muted small" }, "PR'ı merge edilmiş ya da kapanmış ticket'ların worktree'leri. Değişikliği ya da PR'da olmayan commit'i olan atlanır."),
+    h("div", { class: "muted small" }, t("PR'ı merge edilmiş ya da kapanmış ticket'ların worktree'leri. Değişikliği ya da PR'da olmayan commit'i olan atlanır.")),
     h("ul", { class: "checks" }, checks.map(([c, cb]) => h("li", { class: c.cleanable ? "ok" : "warn" },
       h("label", { class: "check" }, cb, h("span", { class: "id" }, c.id), " ", c.title),
       h("span", { class: `pill ${c.pr_state === "MERGED" ? "ok" : c.pr_state === "CLOSED" ? "mute" : "warn"}` }, (c.pr_state || "?").toLowerCase()),
-      c.cleanable ? h("span", { class: "muted small" }, c.delete_branch ? "worktree + yerel dal" : "worktree (dal kalır)") : h("span", { class: "muted small" }, c.reasons.join("; "))))),
-    h("div", { class: "row end" }, h("button", { class: "ghost", onclick: () => { box.hidden = true; } }, "Vazgeç"), go)));
+      c.cleanable ? h("span", { class: "muted small" }, c.delete_branch ? t("worktree + yerel dal") : t("worktree (dal kalır)")) : h("span", { class: "muted small" }, c.reasons.join("; "))))),
+    h("div", { class: "row end" }, h("button", { class: "ghost", onclick: () => { box.hidden = true; } }, t("Vazgeç")), go)));
 });
 
 document.addEventListener("keydown", (e) => {
@@ -3918,6 +3980,20 @@ document.addEventListener("visibilitychange", () => { if (!document.hidden) refr
 
 // One clock for every elapsed time on the page.
 setInterval(() => { for (const el of document.querySelectorAll("[data-since]")) el.textContent = elapsed(el.dataset.since); }, 1000);
+
+// --- language -----------------------------------------------------------------------------------
+// "EN · TR" at the foot of the sidebar: the panel's language. i18n.js keeps the choice (localStorage) and reloads.
+function languageSwitch() {
+  const choice = (lang, label, name) => {
+    const on = I18N.lang === lang;
+    return h("button", { type: "button", lang, title: name, "aria-pressed": String(on), onclick: () => { if (!on) setLanguage(lang); },
+      style: `font:inherit;font-size:12.5px;letter-spacing:.04em;padding:2px 4px;border:0;background:none;cursor:${on ? "default" : "pointer"};`
+        + `color:${on ? "var(--text)" : "var(--muted)"};font-weight:${on ? "700" : "400"};text-decoration:${on ? "underline" : "none"};text-underline-offset:3px` }, label);
+  };
+  return h("div", { class: "lang-switch", role: "group", "aria-label": t("Dil"), style: "display:flex;align-items:center;gap:2px;margin-top:6px" },
+    choice("en", "EN", "English"), h("span", { "aria-hidden": "true", style: "color:var(--muted)" }, "·"), choice("tr", "TR", "Türkçe"));  // i18n-ok: a language is named in its own language
+}
+document.querySelector(".side-foot").append(languageSwitch());
 
 showView();
 refresh();

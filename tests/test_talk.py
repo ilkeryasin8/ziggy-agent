@@ -66,7 +66,7 @@ def test_a_write_chat_works_in_its_own_prepared_worktree(ch):
     assert (ch.target.state_dir / f"prepared-talk-{meta['id']}").exists()  # the target's prepare ran once
     deny = denied(calls(ch)[0]["argv"])
     assert "Bash" not in deny and "Edit" not in deny and "Bash(git checkout:*)" in deny and "Bash(git push:*)" in deny
-    assert "mcp__*__update_*" not in deny  # a write chat may act through the connectors
+    assert "mcp__*__update_*" in deny and "mcp__*__send_*" in deny  # connectors read in a write chat too
     assert "You work in this chat's own git worktree" in flag(calls(ch)[0]["argv"], "--append-system-prompt")
 
     second = talk.send(ch.target, meta["id"], "draft more")
@@ -79,6 +79,26 @@ def test_a_write_chat_works_in_its_own_prepared_worktree(ch):
     talk.delete(ch.target, meta["id"], force=True)
     assert not wt.exists() and talk.list_chats(ch.target) == []
     assert git("branch", "--list", f"chat/{meta['id']}", cwd=ch.target.path).strip() == ""
+
+
+def test_once_the_logins_servers_are_known_a_turn_runs_on_an_allowlist(ch, monkeypatch):
+    monkeypatch.setenv("FAKE_CHAT_MCP", json.dumps(["claude.ai YouTrack", "claude.ai Google Calendar"]))
+    play(ch, {}, {}, {})
+    meta = talk.create(ch.target, "read")
+    talk.send(ch.target, meta["id"], "first")  # servers unknown yet: auto mode, deny list only
+    talk.send(ch.target, meta["id"], "second")
+    first, second = (c["argv"] for c in calls(ch))
+    assert flag(first, "--permission-mode") == "auto" and "--allowedTools" not in first
+    assert flag(second, "--permission-mode") == "dontAsk"
+    allowed = second[second.index("--allowedTools") + 1: second.index("--add-dir")]
+    assert {"Read", "Grep", "Glob", "ToolSearch", "mcp__claude_ai_YouTrack__search_*",
+            "mcp__claude_ai_Google_Calendar__list_*", "mcp__claude_ai_YouTrack__issue_read"} <= set(allowed)
+    assert not any(a.startswith("mcp__") and ("update" in a or "send" in a) for a in allowed)
+    assert "Bash" not in allowed and "Edit" not in allowed and "mcp__*__send_*" in denied(second)
+    wmeta = talk.create(ch.target, "write")
+    talk.send(ch.target, wmeta["id"], "edit")
+    third = calls(ch)[2]["argv"]
+    assert {"Edit", "Bash", "mcp__claude_ai_YouTrack__get_*"} <= set(third[third.index("--allowedTools") + 1: third.index("--add-dir")])
 
 
 def test_validation_and_missing_chats(ch):
